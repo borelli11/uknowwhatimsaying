@@ -1,0 +1,178 @@
+let
+    // ══════════ 1. PARÂMETROS — ajuste aqui ══════════
+    Usuario         = "Enrico",
+    Pasta           = "C:\Users\" & Usuario & "\Desktop\Power BI",
+    // Se a Área de Trabalho estiver sincronizada no OneDrive, use uma destas:
+    //   "C:\Users\" & Usuario & "\OneDrive\Desktop\Power BI"
+    //   "C:\Users\" & Usuario & "\OneDrive\Área de Trabalho\Power BI"
+    // Para confirmar: Shift + botão direito na pasta → "Copiar como caminho".
+
+    LinhasParaPular = 0,          // linhas acima do cabeçalho (0 = cabeçalho na 1ª linha)
+    AbaAlvo         = "Planilha 1",  // aba que contém os dados (as outras são ignoradas)
+
+    ColunasAlvo     = {
+        "Campanha", "Salesforce", "Prioridade", "Sub Canal",
+        "Qtd Mailing Carregado", "APP", "Horario sugerido",
+        "QTDD ENVIAVEL", "STATUS", "Não Enviados",
+        "Hr Disparo", "Hr Finalizou", "FALHA"
+    },
+
+    // ══════════ 2. FUNÇÃO: extrai a data do nome do arquivo ══════════
+    // Procura o primeiro bloco isolado de 8 dígitos. Funciona com
+    // "20260807.xlsx", "Disparos_20260807.xlsx", "Push - 20260807 v2.xlsx"
+    fxData = (nome as text) as nullable date =>
+        let
+            semExt    = Text.BeforeDelimiter(nome, ".", {0, RelativePosition.FromEnd}),
+            tokens    = Text.SplitAny(semExt, " _-()[].,"),
+            candidato = List.First(
+                            List.Select(tokens,
+                                each Text.Length(_) = 8 and Text.Select(_, {"0".."9"}) = _),
+                            null)
+        in
+            if candidato = null then null
+            else try Date.FromText(
+                        Text.Start(candidato, 4) & "-" &
+                        Text.Middle(candidato, 4, 2) & "-" &
+                        Text.End(candidato, 2))
+                 otherwise null,
+
+    // Normaliza nome de aba: minúscula, sem espaços, sem acento nas bordas.
+    // "Planilha 1", "planilha1", "Planilha 1 " → todos viram "planilha1"
+    fxAba = (nome as any) as text =>
+        Text.Replace(Text.Lower(Text.Trim(Text.From(nome ?? ""))), " ", ""),
+
+    // ══════════ 3. LISTA OS ARQUIVOS ══════════
+    Fonte     = Folder.Files(Pasta),
+    SoExcel   = Table.SelectRows(Fonte,
+                    each ([Extension] = ".xlsx" or [Extension] = ".xlsm")
+                     and not Text.StartsWith([Name], "~$")),   // ignora temporários do Excel
+    ComData   = Table.AddColumn(SoExcel, "DataDisparo", each fxData([Name]), type date),
+    ValidData = Table.SelectRows(ComData, each [DataDisparo] <> null),
+
+    // ══════════ 4. ABRE CADA ARQUIVO E FICA SÓ COM A ABA DE DADOS ══════════
+    Livro    = Table.AddColumn(ValidData, "Livro", each Excel.Workbook([Content], false)),
+    Enxuto   = Table.SelectColumns(Livro, {"Name", "DataDisparo", "Livro"}),
+    ExpLivro = Table.ExpandTableColumn(Enxuto, "Livro",
+                    {"Name", "Data", "Kind"}, {"Aba", "Tabela", "Tipo"}),
+
+    // [Tipo] = "Sheet" descarta Tabelas e Intervalos Nomeados, que apareceriam
+    // duplicando a mesma aba. O filtro de nome descarta as demais abas.
+    SoAbas   = Table.SelectRows(ExpLivro, each
+                    [Tipo] = "Sheet" and fxAba([Aba]) = fxAba(AbaAlvo)),
+
+    // ══════════ 4.1 TRAVA DE SEGURANÇA ══════════
+    // Se algum arquivo não tiver a aba alvo, ele sumiria em silêncio.
+    // Aqui o refresh para e diz qual é o arquivo.
+Faltando      = List.Difference(ValidData[Name], SoAbas[Name]),
+    SemDataNoNome = Table.SelectRows(ComData, each [DataDisparo] = null)[Name],
+
+    Conferido =
+        if List.Count(SemDataNoNome) > 0 then
+            error Error.Record("Data não identificada no nome do arquivo",
+                "Renomeie incluindo a data em 8 dígitos (ex.: 20260810):",
+                Text.Combine(SemDataNoNome, ", "))
+        else if List.Count(Faltando) > 0 then
+            error Error.Record("Aba não encontrada",
+                "Arquivos sem a aba '" & AbaAlvo & "':",
+                Text.Combine(Faltando, ", "))
+        else SoAbas,
+
+    // ══════════ 5. CABEÇALHO + NORMALIZAÇÃO DENTRO DE CADA ABA ══════════
+    // MissingField.UseNull impede que 1 arquivo com coluna faltando quebre tudo
+    Preparado = Table.TransformColumns(Conferido, {"Tabela", each
+                    Table.SelectColumns(
+                        Table.PromoteHeaders(Table.Skip(_, LinhasParaPular),
+                                             [PromoteAllScalars = true]),
+                        ColunasAlvo, MissingField.UseNull)}),
+
+    SoNecessario = Table.SelectColumns(Preparado, {"Name", "DataDisparo", "Aba", "Tabela"}),
+    Expandido    = Table.ExpandTableColumn(SoNecessario, "Tabela", ColunasAlvo),
+
+    // ══════════ 6. LIMPEZA ══════════
+    SemVazias = Table.SelectRows(Expandido,
+                    each [APP] <> null and Text.Trim(Text.From([APP] ?? "")) <> ""),
+
+    // Neutraliza #DIV/0!, #REF!, #N/D vindos das fórmulas manuais
+    SemErros = Table.ReplaceErrorValues(SemVazias, {
+                    {"QTDD ENVIAVEL", null}, {"FALHA", null},
+                    {"Qtd Mailing Carregado", null}, {"Não Enviados", null}}),
+
+    // ══════════ 7. TIPOS ══════════
+    // Se algum número vier como TEXTO no formato pt-BR ("30.579"), troque esta
+    // etapa por: Table.TransformColumnTypes(SemErros, {...}, "pt-BR")
+    Tipos = Table.TransformColumnTypes(SemErros, {
+                {"DataDisparo",            type date},
+                {"Campanha",               type text},
+                {"Salesforce",             type text},
+                {"Prioridade",             Int64.Type},
+                {"Sub Canal",              type text},
+                {"Qtd Mailing Carregado",  Int64.Type},
+                {"APP",                    type text},
+                {"STATUS",                 type text},
+                {"QTDD ENVIAVEL",          Int64.Type},
+                {"Não Enviados",           Int64.Type},
+                {"FALHA",                  Int64.Type},
+                {"Horario sugerido",       type time},
+                {"Hr Disparo",             type time},
+                {"Hr Finalizou",           type time}
+            }),
+
+    // ══════════ 8. TAXONOMIA: extrai Codigo, CPI e SO do nome Salesforce ══════════
+    // Padrão: <codigo>_<CPI>_<NOME>_<SO>
+    ComTokens = Table.AddColumn(Tipos, "_tk",
+                    each Text.Split(Text.From([Salesforce] ?? ""), "_")),
+
+    ComCodigo = Table.AddColumn(ComTokens, "Codigo", each
+                    if List.Count([_tk]) >= 1 then [_tk]{0} else null, type text),
+
+    // CPI = 2º token, e só se for todo numérico (evita pegar nome de campanha
+    // em linhas fora do padrão). Mantido como TEXTO para preservar os zeros à esquerda.
+    ComCPI = Table.AddColumn(ComCodigo, "CPI", each
+                    let t = [_tk] in
+                    if List.Count(t) >= 3 and t{1} <> "" and Text.Select(t{1}, {"0".."9"}) = t{1}
+                    then t{1} else null, type text),
+
+    ComSOnome = Table.AddColumn(ComCPI, "SO Nome", each
+                    let u = Text.Upper(Text.From(List.Last([_tk], ""))) in
+                    if u = "ANDROID" then "Android"
+                    else if u = "IOS" then "iOS" else null, type text),
+
+    ComSO = Table.AddColumn(ComSOnome, "SO", each
+                    let a = Text.Upper(Text.From([APP] ?? "")) in
+                    if   Text.Contains(a, "ANDROID") then "Android"
+                    else if Text.Contains(a, "IOS")  then "iOS"
+                    else "Outro", type text),
+
+    // Coluna de auditoria: SO no nome x SO na coluna APP
+    ComTaxonomia = Table.AddColumn(ComSO, "Taxonomia", each
+                    if      [CPI] = null              then "CPI não identificado"
+                    else if [SO Nome] = null          then "SO ausente no nome"
+                    else if [SO Nome] <> [SO]         then "SO divergente do APP"
+                    else "OK", type text),
+
+    // Chave da ação. Se o CPI não sair do nome, cai para a Campanha —
+    // assim a desduplicação do mailing nunca deixa de funcionar.
+    ComChaveCPI = Table.AddColumn(ComTaxonomia, "ChaveCPI", each
+                    [CPI] ?? Text.From([Campanha] ?? "SEM CHAVE"), type text),
+
+    ComChave = Table.AddColumn(ComChaveCPI, "ChaveDisparo", each
+                    Date.ToText([DataDisparo], [Format = "yyyyMMdd"]) & "|" & [ChaveCPI],
+                    type text),
+
+    // ══════════ 9. COLUNAS DERIVADAS ══════════
+    ComAtraso = Table.AddColumn(ComChave, "AtrasoMin", each
+                    if [Hr Disparo] = null or [Horario sugerido] = null then null
+                    else Duration.TotalMinutes([Hr Disparo] - [Horario sugerido]), type number),
+
+    ComDuracao = Table.AddColumn(ComAtraso, "DuracaoMin", each
+                    if [Hr Disparo] = null or [Hr Finalizou] = null then null
+                    else Duration.TotalMinutes([Hr Finalizou] - [Hr Disparo]), type number),
+
+    ComQualidade = Table.AddColumn(ComDuracao, "RegistroCompleto", each
+                    if [QTDD ENVIAVEL] <> null and [FALHA] <> null and [Hr Finalizou] <> null
+                    then "Completo" else "Incompleto", type text),
+
+    Renomeado = Table.RenameColumns(ComQualidade, {{"Name", "ArquivoOrigem"}}),
+    Final     = Table.RemoveColumns(Renomeado, {"_tk"})
+in
+    Final
