@@ -1,0 +1,568 @@
+# BI de Disparos de Push (CRM) — Enviados vs. Falhas
+### Guia de construção no Power BI a partir dos registros operacionais do Marketing Cloud
+
+**Fonte:** SharePoint → `CRM Publicação` → `Documentos Compartilhados` → `PUSH Envios`
+
+```
+PUSH Envios
+├── 2025
+│   └── 012025 ... 122025
+│        └── 20250113.xlsx ...
+└── 2026
+    ├── 012026 ... 082026
+    │    └── 20260810.xlsx ...
+```
+
+**Aba de dados:** `Planilha1` (as abas `DASH` e `TEMPO` são ignoradas)
+
+---
+
+## 0. Antes de escrever uma linha de código: o grão
+
+**Grão da tabela fato = 1 linha por `Data` × `Nome da Campanha` × `APP`.**
+
+Cada ação gera **duas linhas** (uma Android, uma iOS). Consequência:
+
+| Coluna | Comportamento entre as 2 linhas da mesma ação | Como agregar |
+|---|---|---|
+| Qtd Mailing Carregado | **Repetida** | ❌ Nunca `SUM`. Usa `MAX` por ação |
+| QTDD ENVIÁVEL | Diferente (a Salesforce quebra por SO) | ✅ `SUM` |
+| FALHA | Diferente | ✅ `SUM` |
+| Não Enviados | Diferente | ✅ `SUM` |
+
+### Tokens ≠ clientes
+
+O mailing é base de **clientes**; o enviável é base de **tokens/dispositivos**. O mesmo cliente é disparado nos dois SOs porque não há como saber a plataforma dele pela planilha.
+
+- ✅ **Pode afirmar**: "X% dos tokens enviáveis falharam", "a falha se concentra no Android".
+- ❌ **Não pode afirmar**: "X% dos clientes não recebeu". Cliente com token nos dois SOs que falhou só no Android **recebeu**.
+- 🎯 **Para fechar essa lacuna**: `_PushAddress` (plataforma e opt-in por SubscriberKey) e `PushSendLog` no Marketing Cloud.
+
+Deixe isso numa caixa de texto na capa do relatório.
+
+---
+
+## 1. Mapa das colunas
+
+| Col. | Cabeçalho | Papel no BI |
+|---|---|---|
+| A | Responsável | Dimensão |
+| B | Resp_DC | Dimensão |
+| C | Briefing | Dimensão (8 dígitos, ex.: `00011950`) |
+| D | Nome da Campanha | **Chave da ação** — ver 2.2 |
+| E | Em Automação | Dimensão (N / S) |
+| F | Nome Atividade Salesforce | Fonte do CPI e validação de SO |
+| G | Prioridade | Dimensão (13, 18, 19, 21, 27, 34, 36, 59, 999) |
+| H | Sub Canal | Dimensão (Push Alerta + Inbox / Push Personalizado) |
+| I | Qtd Mailing Carregado | Métrica **desduplicada** |
+| J | APP | Deriva `SO` **e** `Aplicativo` — ver 2.3 |
+| K | Horario sugerido | Base do atraso |
+| L | QTDD ENVIAVEL | **Denominador oficial** |
+| M | STATUS | Concluída / Em Andamento / Agendado / Orçado / **Não Publicada/Justificada** |
+| N | Não Enviados | Métrica |
+| O | Hr Disparo | Base do atraso e da duração |
+| P | Hr Finalizou | Base da duração |
+| Q | Tempo `=SE(P2-O2;...)` | ❌ Não importar — recalcular |
+| R | FALHA | **Numerador oficial** |
+| S | Percentual `=R2/L2` | ❌ Não importar — vira medida DAX |
+| T | Performance | ❌ Não importar — vira medida |
+| U | Analista | Dimensão (quem executou o disparo) |
+| V | OBS | Texto livre |
+| W | Publicação_Sugerida | Data — usada como validação cruzada |
+
+> **Confira os nomes exatos** antes de rodar. Acento, underscore e espaço invisível no fim quebram o `ColunasAlvo` em silêncio. O jeito rápido: selecione a linha 1 inteira no Excel, copie, cole num bloco de notas.
+
+### Colunas novas que valem virar segmentação
+
+`Analista` e `Responsável` abrem uma leitura que não existia: **taxa de falha por pessoa que executou**. Cuidado ao usar — se a diferença entre analistas existir, quase certamente é reflexo do *mix de campanhas* que cada um pega (mais Android, mais volume), não de competência. Use como diagnóstico de distribuição de carga, nunca como avaliação individual.
+
+`Em Automação` é mais interessante do que parece: compara disparo automatizado contra disparo manual. Se a falha for igual nos dois, reforça que o problema é de base, não de execução.
+
+---
+
+## 2. Power Query — consolidando os arquivos do SharePoint
+
+### 2.1 Por que `SharePoint.Files` e não pasta local
+
+Os arquivos estão em `PUSH Envios/2025/` e `PUSH Envios/2026/`. O `SharePoint.Files` varre o site inteiro **recursivamente**, então os dois anos entram sem você precisar apontar cada subpasta. Você filtra pelo caminho depois.
+
+Vantagem extra: publicando no Serviço do Power BI, SharePoint Online atualiza **sem gateway**. Pasta local exigiria gateway instalado numa máquina sempre ligada.
+
+> **Correção de algo que eu disse antes:** eu afirmei que `Folder.Files` não desce em subpastas. Está errado — ele **é recursivo**. Aquela sugestão de "arquivar movendo para subpasta" não funcionaria. Para excluir períodos antigos, use filtro por data (mostrado no passo 3 do código).
+
+### 2.2 A taxonomia — e o que mudou
+
+Duas colunas carregam a taxonomia, com padrões diferentes:
+
+**`Nome da Campanha` (D)** — a chave da ação:
+```
+00011950_00131776_ABERTURA_CC_PJ_APP_PRM_PUSH
+└──────┘ └──────┘ └──────────────────────────┘
+Briefing    CPI              nome
+```
+
+**`Nome Atividade Salesforce` (F)** — a mesma coisa + APP + data:
+```
+11950_00131776_ABERTURA_CC_PJ_APP_PRM_PUSH_ANDROID_CLASSIC_100826
+└───┘ └──────┘ └──────────────────────────┘ └─────┘ └─────┘ └────┘
+Brief   CPI              nome                  SO     app   DDMMYY
+```
+
+**⚠️ Isso quebra o código anterior.** Eu tirava o SO do **último token** do nome Salesforce. Agora o último token é a **data** (`100826`). O código antigo classificaria tudo como "SO ausente".
+
+Três decisões que decorrem disso:
+
+**1. A chave da ação passa a ser `Nome da Campanha`, não o CPI.** Motivo: existem campanhas legítimas **sem CPI** na taxonomia — `00008300_CDC_AUTO_PROPENSO_EXCLUSIVE_PUSH` não tem. Se a chave dependesse do CPI, essas ações ficariam sem desduplicação. O `Nome da Campanha` está presente em todas e já vem idêntico nas duas linhas do par.
+
+**2. SO sai da coluna `APP`, não do nome.** E a comparação por **token exato**, nunca por "contém". `Text.Contains(nome, "IOS")` daria positivo em `NEGOCIOS`, `BENEFICIOS`, `SERVICOS`. Um bug desses classificaria campanhas Android como iOS e destruiria justamente o número que você quer defender.
+
+**3. A coluna `APP` tem quatro valores, não dois:** `ANDROID_CLASSIC`, `IOS_CLASSIC`, `PJ_ANDROID`, `PJ_IOS`. Ela codifica **duas** dimensões ao mesmo tempo — o sistema operacional e **qual aplicativo** (Classic = PF, PJ = pessoa jurídica). Separe as duas. Comparar falha PF × PJ dentro do mesmo SO é um corte que você não tinha e pode isolar ainda mais a causa.
+
+### 2.3 Código M
+
+`Página Inicial` → `Transformar dados` → `Nova Fonte` → `Consulta nula` → `Editor Avançado` → apague tudo → cole:
+
+```m
+let
+    // ══════════ 1. PARÂMETROS ══════════
+    SiteUrl         = "https://bancobradesco.sharepoint.com/sites/CRM-Publicao",
+    FiltroCaminho   = "PUSH Envios",   // filtra a biblioteca dentro do site
+    AbaAlvo         = "Planilha1",
+    LinhasParaPular = 0,
+    DataMinima      = #date(2025, 1, 1),   // ignora arquivos anteriores a isso
+
+    ColunasAlvo = {
+        "Responsável", "Resp_DC", "Briefing", "Nome da Campanha", "Em Automação",
+        "Nome Atividade Salesforce", "Prioridade", "Sub Canal",
+        "Qtd Mailing Carregado", "APP", "Horario sugerido",
+        "QTDD ENVIAVEL", "STATUS", "Não Enviados",
+        "Hr Disparo", "Hr Finalizou", "FALHA",
+        "Analista", "OBS", "Publicação_Sugerida"
+    },
+
+    // ══════════ 2. FUNÇÕES AUXILIARES ══════════
+    // Data a partir do nome do arquivo: primeiro bloco isolado de 8 dígitos
+    fxData = (nome as text) as nullable date =>
+        let
+            semExt    = Text.BeforeDelimiter(nome, ".", {0, RelativePosition.FromEnd}),
+            tokens    = Text.SplitAny(semExt, " _-()[].,"),
+            candidato = List.First(
+                            List.Select(tokens,
+                                each Text.Length(_) = 8 and Text.Select(_, {"0".."9"}) = _),
+                            null)
+        in
+            if candidato = null then null
+            else try Date.FromText(
+                        Text.Start(candidato, 4) & "-" &
+                        Text.Middle(candidato, 4, 2) & "-" &
+                        Text.End(candidato, 2))
+                 otherwise null,
+
+    // Normaliza nome de aba: "Planilha1", "Planilha 1", "planilha 1 " → "planilha1"
+    fxAba = (nome as any) as text =>
+        Text.Replace(Text.Lower(Text.Trim(Text.From(nome ?? ""))), " ", ""),
+
+    // Tokens em maiúscula de um texto separado por "_"
+    fxTokens = (txt as any) as list =>
+        List.Transform(Text.Split(Text.Upper(Text.Trim(Text.From(txt ?? ""))), "_"), Text.From),
+
+    // Normaliza caminho: decodifica %20 e sobe para maiúscula.
+    // O SharePoint às vezes devolve "PUSH%20Envios" em vez de "PUSH Envios".
+    fxCaminho = (t as any) as text =>
+        Text.Upper(Text.Replace(Text.From(t ?? ""), "%20", " ")),
+
+    // ══════════ 3. LISTA OS ARQUIVOS NO SHAREPOINT ══════════
+    // SharePoint.Files é RECURSIVO: desce PUSH Envios → 2026 → 082026 → arquivos,
+    // em qualquer profundidade. Não precisa apontar cada subpasta.
+    Fonte     = SharePoint.Files(SiteUrl, [ApiVersion = 15]),
+    NaPasta   = Table.SelectRows(Fonte,
+                    each Text.Contains(fxCaminho([Folder Path]), fxCaminho(FiltroCaminho))),
+    SoExcel   = Table.SelectRows(NaPasta,
+                    each ([Extension] = ".xlsx" or [Extension] = ".xlsm")
+                     and not Text.StartsWith([Name], "~$")),
+    ComData   = Table.AddColumn(SoExcel, "DataDisparo", each fxData([Name]), type date),
+    ValidData = Table.SelectRows(ComData,
+                    each [DataDisparo] <> null and [DataDisparo] >= DataMinima),
+
+    // Ano e mês tirados da PASTA (não do arquivo) — serve para auditar
+    // arquivo salvo na pasta errada, ex.: 20260810.xlsx dentro de 072026
+    ComPastaMes = Table.AddColumn(ValidData, "PastaMes", each
+                    let
+                        partes = List.Select(Text.Split(fxCaminho([Folder Path]), "/"),
+                                    each Text.Length(_) = 6 and Text.Select(_, {"0".."9"}) = _)
+                    in
+                        if List.Count(partes) > 0 then List.Last(partes) else null, type text),
+
+    ComPastaOk = Table.AddColumn(ComPastaMes, "PastaCorreta", each
+                    if [PastaMes] = null then "Sem pasta de mês"
+                    else if [PastaMes] = Date.ToText([DataDisparo], [Format = "MMyyyy"])
+                    then "OK" else "Arquivo em pasta de mês errada", type text),
+
+    // ══════════ 4. ABRE CADA ARQUIVO E FICA SÓ COM A ABA DE DADOS ══════════
+    Livro    = Table.AddColumn(ComPastaOk, "Livro", each Excel.Workbook([Content], false)),
+    Enxuto   = Table.SelectColumns(Livro,
+                    {"Name", "DataDisparo", "PastaMes", "PastaCorreta", "Livro"}),
+    ExpLivro = Table.ExpandTableColumn(Enxuto, "Livro",
+                    {"Name", "Data", "Kind"}, {"Aba", "Tabela", "Tipo"}),
+
+    // [Tipo] = "Sheet" descarta Tabelas e Intervalos Nomeados.
+    // O filtro de nome descarta as abas DASH e TEMPO.
+    SoAbas   = Table.SelectRows(ExpLivro, each
+                    [Tipo] = "Sheet" and fxAba([Aba]) = fxAba(AbaAlvo)),
+
+    // ══════════ 4.1 TRAVAS DE SEGURANÇA ══════════
+    SemDataNoNome = Table.SelectRows(ComData, each [DataDisparo] = null)[Name],
+    Faltando      = List.Difference(ValidData[Name], SoAbas[Name]),
+    Conferido =
+        if List.Count(SemDataNoNome) > 0 then
+            error Error.Record("Data não identificada no nome do arquivo",
+                "Renomeie incluindo a data em 8 dígitos (ex.: 20260810):",
+                Text.Combine(List.FirstN(SemDataNoNome, 20), ", "))
+        else if List.Count(Faltando) > 0 then
+            error Error.Record("Aba não encontrada",
+                "Arquivos sem a aba '" & AbaAlvo & "':",
+                Text.Combine(List.FirstN(Faltando, 20), ", "))
+        else SoAbas,
+
+    // ══════════ 5. CABEÇALHO + NORMALIZAÇÃO DENTRO DE CADA ABA ══════════
+    Preparado = Table.TransformColumns(Conferido, {"Tabela", each
+                    Table.SelectColumns(
+                        Table.PromoteHeaders(Table.Skip(_, LinhasParaPular),
+                                             [PromoteAllScalars = true]),
+                        ColunasAlvo, MissingField.UseNull)}),
+
+    SoNecessario = Table.SelectColumns(Preparado,
+                       {"Name", "DataDisparo", "PastaMes", "PastaCorreta", "Aba", "Tabela"}),
+    Expandido    = Table.ExpandTableColumn(SoNecessario, "Tabela", ColunasAlvo),
+
+    // ══════════ 6. LIMPEZA ══════════
+    SemVazias = Table.SelectRows(Expandido,
+                    each [APP] <> null and Text.Trim(Text.From([APP] ?? "")) <> ""),
+
+    SemErros = Table.ReplaceErrorValues(SemVazias, {
+                    {"QTDD ENVIAVEL", null}, {"FALHA", null},
+                    {"Qtd Mailing Carregado", null}, {"Não Enviados", null}}),
+
+    // ══════════ 7. TIPOS ══════════
+    Tipos = Table.TransformColumnTypes(SemErros, {
+                {"DataDisparo",               type date},
+                {"Responsável",               type text},
+                {"Resp_DC",                   type text},
+                {"Briefing",                  type text},
+                {"Nome da Campanha",          type text},
+                {"Em Automação",              type text},
+                {"Nome Atividade Salesforce", type text},
+                {"Prioridade",                Int64.Type},
+                {"Sub Canal",                 type text},
+                {"Qtd Mailing Carregado",     Int64.Type},
+                {"APP",                       type text},
+                {"STATUS",                    type text},
+                {"QTDD ENVIAVEL",             Int64.Type},
+                {"Não Enviados",              Int64.Type},
+                {"FALHA",                     Int64.Type},
+                {"Horario sugerido",          type time},
+                {"Hr Disparo",                type time},
+                {"Hr Finalizou",              type time},
+                {"Analista",                  type text},
+                {"OBS",                       type text},
+                {"Publicação_Sugerida",       type date}
+            }),
+
+    // ══════════ 8. SO E APLICATIVO — a partir da coluna APP ══════════
+    // APP tem 4 valores: ANDROID_CLASSIC, IOS_CLASSIC, PJ_ANDROID, PJ_IOS
+    // Comparação por TOKEN EXATO. "Contém IOS" daria falso positivo em NEGOCIOS.
+    ComSO = Table.AddColumn(Tipos, "SO", each
+                let t = fxTokens([APP]) in
+                if      List.Contains(t, "ANDROID") then "Android"
+                else if List.Contains(t, "IOS")     then "iOS"
+                else null, type text),
+
+    ComApp = Table.AddColumn(ComSO, "Aplicativo", each
+                let t = fxTokens([APP]) in
+                if      List.Contains(t, "PJ")      then "PJ"
+                else if List.Contains(t, "CLASSIC") then "Classic"
+                else "Outro", type text),
+
+    // ══════════ 9. TAXONOMIA — Briefing, CPI e validações ══════════
+    ComTk = Table.AddColumn(ComApp, "_tk", each fxTokens([Nome Atividade Salesforce])),
+
+    // CPI = 2º token, só se for numérico de 8 dígitos.
+    // Campanhas sem CPI existem e são legítimas (ex.: 8300_CDC_AUTO_...).
+    ComCPI = Table.AddColumn(ComTk, "CPI", each
+                let t = [_tk] in
+                if List.Count(t) >= 3 and Text.Length(t{1}) = 8
+                   and Text.Select(t{1}, {"0".."9"}) = t{1}
+                then t{1} else null, type text),
+
+    // SO segundo o nome Salesforce — token exato, para cruzar com a coluna APP
+    ComSOsf = Table.AddColumn(ComCPI, "SO Salesforce", each
+                let t = [_tk] in
+                if      List.Contains(t, "ANDROID") then "Android"
+                else if List.Contains(t, "IOS")     then "iOS"
+                else null, type text),
+
+    // Data no fim do nome Salesforce: DDMMYY (ex.: 100826 = 10/08/2026)
+    ComDataSF = Table.AddColumn(ComSOsf, "Data Salesforce", each
+                let
+                    t = [_tk],
+                    u = if List.Count(t) > 0 then List.Last(t) else "",
+                    ok = Text.Length(u) = 6 and Text.Select(u, {"0".."9"}) = u
+                in
+                    if not ok then null
+                    else try #date(2000 + Number.FromText(Text.End(u, 2)),
+                                   Number.FromText(Text.Middle(u, 2, 2)),
+                                   Number.FromText(Text.Start(u, 2)))
+                         otherwise null, type date),
+
+    ComTaxonomia = Table.AddColumn(ComDataSF, "Taxonomia", each
+                    if      [SO] = null                        then "APP não reconhecido"
+                    else if [SO Salesforce] = null             then "SO ausente no nome"
+                    else if [SO Salesforce] <> [SO]            then "SO divergente do APP"
+                    else if [Data Salesforce] <> null
+                         and [Data Salesforce] <> [DataDisparo] then "Data do nome divergente"
+                    else if [CPI] = null                       then "Sem CPI na taxonomia"
+                    else "OK", type text),
+
+    // ══════════ 10. CHAVES ══════════
+    // Nome da Campanha é a chave da ação: idêntico nas 2 linhas do par
+    // e presente mesmo quando não há CPI.
+    ComChaveAcao = Table.AddColumn(ComTaxonomia, "ChaveAcao", each
+                    let nc = Text.Trim(Text.From([Nome da Campanha] ?? "")) in
+                    if nc <> "" then nc
+                    else Text.From([Briefing] ?? "") & "|" & ([CPI] ?? "SEM CPI"), type text),
+
+    ComChave = Table.AddColumn(ComChaveAcao, "ChaveDisparo", each
+                    Date.ToText([DataDisparo], [Format = "yyyyMMdd"]) & "|" & [ChaveAcao],
+                    type text),
+
+    // ══════════ 11. COLUNAS DERIVADAS ══════════
+    ComAtraso = Table.AddColumn(ComChave, "AtrasoMin", each
+                    if [Hr Disparo] = null or [Horario sugerido] = null then null
+                    else Duration.TotalMinutes([Hr Disparo] - [Horario sugerido]), type number),
+
+    ComDuracao = Table.AddColumn(ComAtraso, "DuracaoMin", each
+                    if [Hr Disparo] = null or [Hr Finalizou] = null then null
+                    else Duration.TotalMinutes([Hr Finalizou] - [Hr Disparo]), type number),
+
+    ComQualidade = Table.AddColumn(ComDuracao, "RegistroCompleto", each
+                    if [QTDD ENVIAVEL] <> null and [FALHA] <> null and [Hr Finalizou] <> null
+                    then "Completo" else "Incompleto", type text),
+
+    Renomeado = Table.RenameColumns(ComQualidade, {{"Name", "ArquivoOrigem"}}),
+    Final     = Table.RemoveColumns(Renomeado, {"_tk"})
+in
+    Final
+```
+
+Renomeie a query para **`fDisparos`**.
+
+### 2.4 Autenticação
+
+Na primeira execução o Power BI pede credencial da fonte SharePoint:
+
+1. **Conta Microsoft** / **Conta organizacional** → **Entrar**
+2. Use o login corporativo (o mesmo do SharePoint)
+3. Nível de privacidade: **Organizacional**
+
+Se o site exigir MFA, a janela de login abre normalmente. Nunca escolha Anônimo — vai falhar.
+
+### 2.5 Se ficar lento
+
+`SharePoint.Files` enumera o site inteiro antes de filtrar. Em site grande isso pesa. Duas saídas:
+
+- **Suba o `DataMinima`** para o início do ano corrente. Arquivos antigos nem são abertos.
+- **Troque por `SharePoint.Contents`** e navegue até a biblioteca, em vez de varrer tudo:
+
+```m
+    Fonte = SharePoint.Contents(SiteUrl, [ApiVersion = 15]){[Name="Documentos Compartilhados"]}[Content],
+    NaPasta = Fonte{[Name="PUSH Envios"]}[Content],
+```
+Mais rápido, porém mais frágil — se alguém renomear a pasta, quebra.
+
+---
+
+## 3. Modelo de dados
+
+```
+                    ┌──────────────┐
+                    │ dCalendario  │
+                    └──────┬───────┘
+                           │ 1:N  (Date → DataDisparo)
+                    ┌──────▼───────┐
+                    │  fDisparos   │
+                    └──────────────┘
+```
+
+**dCalendario** (Modelagem → Nova tabela):
+
+```dax
+dCalendario =
+ADDCOLUMNS(
+    CALENDAR( MIN(fDisparos[DataDisparo]), MAX(fDisparos[DataDisparo]) ),
+    "Ano",             YEAR([Date]),
+    "NumMês",          MONTH([Date]),
+    "Mês",             FORMAT([Date], "mmm"),
+    "AnoMês",          FORMAT([Date], "yyyy-MM"),
+    "NumDiaSemana",    WEEKDAY([Date], 2),
+    "Dia Semana",      FORMAT([Date], "ddd"),
+    "Semana",          "S" & WEEKNUM([Date], 2),
+    "É Fim de Semana", WEEKDAY([Date], 2) > 5
+)
+```
+
+Depois: relacionamento `dCalendario[Date]` → `fDisparos[DataDisparo]` · **Marcar como tabela de data** (coluna `Date`) · `Mês` classificado por `NumMês` · `Dia Semana` classificado por `NumDiaSemana` · ocultar `NumMês` e `NumDiaSemana`.
+
+---
+
+## 4. Medidas DAX
+
+Guarde tudo numa tabela `_Medidas`.
+
+### 4.1 Base
+
+```dax
+Enviável     = SUM( fDisparos[QTDD ENVIAVEL] )
+Falhas       = SUM( fDisparos[FALHA] )
+Não Enviados = SUM( fDisparos[Não Enviados] )
+Entregues    = [Enviável] - [Falhas]
+
+% Falha      = DIVIDE( [Falhas], [Enviável] )
+% Entrega    = DIVIDE( [Entregues], [Enviável] )
+
+Disparos     = COUNTROWS( fDisparos )
+Ações        = DISTINCTCOUNT( fDisparos[ChaveDisparo] )
+Campanhas    = DISTINCTCOUNT( fDisparos[ChaveAcao] )
+```
+
+### 4.2 A medida anti-duplicação
+
+```dax
+Mailing Carregado =
+SUMX(
+    SUMMARIZE( fDisparos, fDisparos[DataDisparo], fDisparos[ChaveAcao] ),
+    CALCULATE( MAX( fDisparos[Qtd Mailing Carregado] ) )
+)
+
+Tokens por Cliente = DIVIDE( [Enviável], [Mailing Carregado] )
+```
+
+Um `SUM` puro em `Qtd Mailing Carregado` devolve o dobro.
+
+### 4.3 Sistema operacional e aplicativo
+
+```dax
+% Falha Android = CALCULATE( [% Falha], fDisparos[SO] = "Android" )
+% Falha iOS     = CALCULATE( [% Falha], fDisparos[SO] = "iOS" )
+Delta SO (p.p.) = ( [% Falha Android] - [% Falha iOS] ) * 100
+
+% Falha Classic = CALCULATE( [% Falha], fDisparos[Aplicativo] = "Classic" )
+% Falha PJ      = CALCULATE( [% Falha], fDisparos[Aplicativo] = "PJ" )
+```
+
+### 4.4 Concentração e limites
+
+```dax
+Limite Falha = 0.40
+
+Disparos Acima do Limite =
+COUNTROWS(
+    FILTER( fDisparos,
+        DIVIDE( fDisparos[FALHA], fDisparos[QTDD ENVIAVEL] ) > [Limite Falha] )
+)
+
+% Disparos Acima do Limite = DIVIDE( [Disparos Acima do Limite], [Disparos] )
+
+Maior % Falha do Período =
+MAXX(
+    FILTER( fDisparos, fDisparos[QTDD ENVIAVEL] > 0 ),
+    DIVIDE( fDisparos[FALHA], fDisparos[QTDD ENVIAVEL] )
+)
+
+% Falha Média por Dia = AVERAGEX( VALUES( dCalendario[Date] ), [% Falha] )
+```
+
+### 4.5 Custo × eficiência
+
+Parâmetro numérico `Custo por Push` (0 a 0,10, incremento 0,001):
+
+```dax
+Custo Total          = [Enviável] * SELECTEDVALUE( 'Custo por Push'[Custo por Push], 0 )
+Custo Desperdiçado   = [Falhas]   * SELECTEDVALUE( 'Custo por Push'[Custo por Push], 0 )
+% Custo Desperdiçado = DIVIDE( [Custo Desperdiçado], [Custo Total] )
+```
+
+**A pergunta que vale a reunião:** a Salesforce cobra por **enviável** ou por **entregue**? Se por enviável, cada ponto de falha é dinheiro queimado. Se por entregue, o prejuízo é de alcance, não financeiro — argumento diferente.
+
+### 4.6 Qualidade do preenchimento
+
+```dax
+Registros Incompletos =
+CALCULATE( [Disparos], fDisparos[RegistroCompleto] = "Incompleto" )
+
+% Preenchimento = DIVIDE( [Disparos] - [Registros Incompletos], [Disparos] )
+
+Concluídas sem Falha Informada =
+COUNTROWS(
+    FILTER( fDisparos,
+        fDisparos[STATUS] = "Concluída" && ISBLANK( fDisparos[FALHA] ) ) )
+
+-- "Sem CPI na taxonomia" é legítimo; não conta como erro
+Taxonomia Inválida =
+CALCULATE( [Disparos],
+    NOT fDisparos[Taxonomia] IN { "OK", "Sem CPI na taxonomia" } )
+
+Sem CPI = CALCULATE( [Disparos], fDisparos[Taxonomia] = "Sem CPI na taxonomia" )
+
+Atraso Médio (min)  = AVERAGE( fDisparos[AtrasoMin] )
+Duração Média (min) = AVERAGE( fDisparos[DuracaoMin] )
+```
+
+**Filtro de página.** `STATUS` tem cinco valores: `Concluída`, `Em Andamento`, `Agendado`, `Orçado` e `Não Publicada/Justificada`. Só o primeiro tem falha preenchida. Use filtro de nível de página `STATUS = "Concluída"` nas páginas analíticas e deixe todos visíveis só na página de qualidade.
+
+`Não Publicada/Justificada` merece indicador próprio — é campanha que **não saiu**, e o mailing carregado dela virou trabalho perdido:
+
+```dax
+Ações Não Publicadas =
+CALCULATE( [Ações], fDisparos[STATUS] = "Não Publicada/Justificada" )
+
+Mailing Não Publicado =
+CALCULATE( [Mailing Carregado], fDisparos[STATUS] = "Não Publicada/Justificada" )
+```
+
+---
+
+## 5. Páginas do relatório
+
+### Página 1 — Visão Executiva
+- **Cartões:** `Enviável` · `Falhas` · `% Falha` · `Custo Desperdiçado` · `Ações`
+- **Linhas:** `% Falha` por dia, com linha constante em 40%
+- **Barras horizontais:** `% Falha` por `SO` — o visual mais importante
+- **Barras:** `% Falha` por `Aplicativo` (Classic × PJ) e por `Sub Canal`
+- **Caixa de texto** com a ressalva "tokens ≠ clientes"
+- **Segmentações:** data, `SO`, `Aplicativo`, `Sub Canal`, `Prioridade`
+
+### Página 2 — Diagnóstico por Campanha
+- **Matriz:** linhas = `Briefing` › `Nome da Campanha`; colunas = `SO`; valores = `Enviável`, `Falhas`, `% Falha` com barras de dados
+- **Dispersão:** X = `Enviável`, Y = `% Falha`, tamanho = `Falhas`, detalhe = `Nome da Campanha`
+- **Top 10** por `Falhas` decrescente
+- **Barras:** `% Falha` por `Prioridade`
+
+### Página 3 — Operação e SLA
+- **Cartões:** `Atraso Médio (min)`, `Duração Média (min)`, `% Preenchimento`, `Ações Não Publicadas`
+- **Tabela:** disparos com `AtrasoMin` > 5, com `Horario sugerido` e `Hr Disparo` lado a lado
+- **Colunas:** disparos por faixa de `Horario sugerido`, cruzado com `% Falha`
+- **Funil:** `Mailing Carregado` → `Enviável` → `Entregues`
+- **Barras:** `% Falha` por `Em Automação` (automatizado × manual)
+
+### Página 4 — Qualidade do Dado
+- **Cartões:** `Registros Incompletos`, `Concluídas sem Falha Informada`, `Taxonomia Inválida`, `Sem CPI`, `% Preenchimento`
+- **Tabela** de linhas incompletas, com `ArquivoOrigem` para corrigir na fonte
+- **Tabela** de `Taxonomia` ≠ OK, mostrando `Nome Atividade Salesforce`, `APP`, `SO` e `SO Salesforce` lado a lado
+- **Tabela:** arquivos lidos e contagem de linhas por data — pega dia faltando
+- **Tabela:** linhas com `PastaCorreta` ≠ OK — arquivo salvo na pasta de mês errada
+- **Colunas por dia:** `% Preenchimento`
+
+```dax
+Arquivos em Pasta Errada =
+CALCULATE( [Disparos], fDisparos[PastaCorreta] = "Arquivo em pasta de mês errada" )
+```
