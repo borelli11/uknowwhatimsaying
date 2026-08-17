@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Busca Fácil · Bradesco CRM</title>
+  <meta name="description" content="Busca de imagens duplicadas ou semelhantes em planilhas Excel, com verificação de descrição, vencimento e qualidade. Processamento 100% no navegador." />
+  <!-- Cor da barra do navegador (Chrome mobile) acompanhando o tema -->
+  <meta name="theme-color" content="#cc092f" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#14161a" media="(prefers-color-scheme: dark)" />
+  <!-- Favicon inline (data URI): sem arquivo extra e sem depender de CDN -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23cc092f'/%3E%3Cg fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round'%3E%3Ccircle cx='14.5' cy='14.5' r='6'/%3E%3Cpath d='M19 19l5 5'/%3E%3C/g%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <!-- Aplica o tema salvo ANTES do primeiro paint: o loader já nasce no
+       tema certo e some o "flash" de tela clara ao recarregar no escuro.
+       Usa a MESMA chave do script de toggle (no fim do body). -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("bradesco_modal_card_theme");
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.setAttribute("data-theme", saved || (prefersDark ? "dark" : "light"));
+      } catch (_) { /* localStorage bloqueado: segue no claro */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Bibliotecas externas 100% client-side (via CDN) -->
+  <!-- XLSX (SheetJS): lê os valores das células da planilha -->
+  <!-- JSZip: abre o .xlsx (que é um .zip) para extrair as imagens embutidas -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+  <!-- ============================================================
+       LOADER (tela de abertura). Some no evento `load` (com tempo
+       mínimo pra não piscar) ou no teto de 5s. Controle inline no
+       fim do body — independente do app.js. -->
+  <div class="loader" id="loader" role="status" aria-label="Carregando o console">
+    <div class="loader-icon">
+      <img src="https://img.icons8.com/color/96/bradesco.png" alt="" width="96" height="96" onerror="this.remove()" />
+    </div>
+    <div class="loader-eyebrow">Bradesco · CRM</div>
+    <div class="loader-title">Busca Fácil</div>
+    <div class="loader-bar" aria-hidden="true"></div>
+  </div>
+
+  <header class="app-header">
+    <div class="brand-accent-bar"></div>
+    <div class="header-inner">
+      <div class="brand">
+        <!-- O CSS de .brand-logo tem um fundo de marca por baixo: se a rede
+             corporativa bloquear o CDN do icons8, o header continua exibindo
+             o quadrado vermelho com a lupa em vez de um ícone quebrado. -->
+        <div class="brand-logo"><img width="40" height="40" src="https://img.icons8.com/color/48/bradesco.png" alt="" onerror="this.remove()" /></div>
+        <div>
+          <div class="brand-eyebrow">Bradesco · CRM · Modelo Operacional</div>
+          <div class="brand-title">Ativação de Campanhas</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="chip">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Ativação de Campanhas
+        </span>
+        <span class="chip chip-offline" title="Roda 100% no navegador — nenhum servidor necessário">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          Offline
+        </span>
+        <!-- Modo escuro/claro. A lógica é inline no fim do body (o app.js
+             da V2 não mexe em tema), então o botão funciona sozinho. -->
+        <button type="button" class="chip chip-btn theme-toggle" id="btn-theme-toggle" data-testid="btn-theme-toggle" aria-label="Alternar modo claro/escuro" title="Alternar modo claro/escuro">
+          <svg id="theme-icon-moon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg id="theme-icon-sun" class="hidden" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <span id="theme-label">Escuro</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div class="page-title">
+      <h1>
+        <svg class="page-title-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        Busca Fácil
+      </h1>
+      <p>Automatize a busca de imagens duplicadas ou semelhantes em planilhas Excel, com verificação de descrição, vencimento e qualidade da imagem. Tudo processado no seu navegador — os arquivos não saem da sua máquina.</p>
+    </div>
+
+    <!-- A linha das abas agora divide espaço com a TRILHA DE PRONTIDÃO, que
+         ocupa a faixa vazia à direita e resume o fluxo planilha → imagem →
+         executar sem competir com a coluna vertical de opções abaixo. -->
+    <div class="tabs-row">
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="run" data-testid="tab-run" role="tab" id="tab-run" aria-controls="panel-run" aria-selected="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Execução
+      </button>
+      <button class="tab" data-tab="history" data-testid="tab-history" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+        Histórico
+      </button>
+    </nav>
+
+      <!-- ---------- PAINEL DE PRÉ-VISUALIZAÇÃO ----------
+           Ocupa a faixa horizontal à direita das abas e mostra a IMAGEM DE
+           PESQUISA em tamanho de verdade, além do estado da planilha e da
+           prontidão para buscar. Clicar na imagem abre o lightbox que o app.js
+           já usa nos matches; sem imagem, o clique abre o seletor de arquivo. -->
+      <div class="preview-strip" id="preview-strip" aria-live="polite">
+        <button type="button" class="ps-figure" id="ps-figure" title="Selecionar a imagem de pesquisa">
+          <svg class="ps-placeholder" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <img class="ps-img" id="ps-img" alt="Imagem de pesquisa selecionada" />
+          <span class="ps-hint">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            ampliar
+          </span>
+        </button>
+
+        <div class="ps-info">
+          <span class="ps-label">Imagem de pesquisa</span>
+          <span class="ps-name" id="ps-name">nenhuma imagem ainda</span>
+          <span class="ps-meta" id="ps-meta">arraste o arquivo na área abaixo</span>
+        </div>
+
+        <div class="ps-foot">
+          <span class="ps-chip" id="ps-chip-xlsx">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            <span id="ps-xlsx-name">planilha pendente</span>
+          </span>
+          <span class="ps-chip ps-chip-ready" id="ps-chip-ready">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            <span id="ps-ready-text">faltam 2 arquivos</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= ABA: EXECUÇÃO ================= -->
+    <section class="tab-panel" id="panel-run" role="tabpanel" aria-labelledby="tab-run">
+
+      <!-- ---------- LINHA 1: Upload + Parâmetros + Ações  |  Preview em destaque ---------- -->
+      <div class="grid">
+        <div class="left-col">
+
+          <!-- Cartão de upload dos arquivos. Cada dropzone aceita tanto
+               arrastar-e-soltar quanto o clique clássico no botão
+               "Selecionar arquivo", para quem não conseguir arrastar. -->
+          <div class="card">
+            <div class="card-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cc092f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <h2 class="card-title">Arquivos</h2>
+            </div>
+
+            <div class="dropzone" id="dz-xlsx" data-testid="dropzone-xlsx">
+              <div class="dz-icon" id="dz-xlsx-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+              </div>
+              <div class="dz-text">
+                <div class="dz-label">Planilha Excel</div>
+                <div class="dz-value" id="dz-xlsx-name">Arraste o arquivo aqui</div>
+                <button type="button" class="dz-select-btn" id="dz-xlsx-btn" data-testid="dropzone-xlsx-btn">
+                  Selecionar arquivo
+                </button>
+              </div>
+              <button class="dz-clear hidden" id="dz-xlsx-clear" data-testid="dropzone-xlsx-clear" aria-label="Remover a planilha selecionada" title="Remover a planilha selecionada">×</button>
+              <input type="file" id="input-xlsx" accept=".xlsx,.xlsm" hidden data-testid="dropzone-xlsx-input" />
+            </div>
+
+            <div class="dropzone" id="dz-image" data-testid="dropzone-image">
+              <div class="dz-icon" id="dz-image-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+              <div class="dz-text">
+                <div class="dz-label">Imagem de pesquisa</div>
+                <div class="dz-value" id="dz-image-name">Arraste o arquivo aqui</div>
+                <button type="button" class="dz-select-btn" id="dz-image-btn" data-testid="dropzone-image-btn">
+                  Selecionar arquivo
+                </button>
+              </div>
+              <button class="dz-clear hidden" id="dz-image-clear" data-testid="dropzone-image-clear" aria-label="Remover a imagem selecionada" title="Remover a imagem selecionada">×</button>
+              <input type="file" id="input-image" accept="image/*" hidden data-testid="dropzone-image-input" />
+            </div>
+          </div>
+
+          <!-- Cartão de parâmetros avançados (retrátil, já existia antes) -->
+          <div class="card">
+            <button class="collapsible-trigger" id="btn-advanced-toggle" data-testid="advanced-toggle">
+              <span class="ct-left">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cc092f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24"/></svg>
+                <h2 class="card-title">Parâmetros</h2>
+              </span>
+              <svg id="advanced-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div class="collapsible-content hidden" id="advanced-panel">
+              <div class="field">
+                <label for="p-sheet">Nome da aba</label>
+                <input id="p-sheet" data-testid="input-sheet" value="Cards_PF" />
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="p-desc-col">Col. Descrição</label>
+                  <input id="p-desc-col" data-testid="input-desc-col" value="B" maxlength="3" />
+                </div>
+                <div class="field">
+                  <label for="p-exp-col">Col. Vencimento</label>
+                  <input id="p-exp-col" data-testid="input-exp-col" value="D" maxlength="3" />
+                </div>
+              </div>
+
+              <!-- Coluna opcional com o link do Adobe: se preenchida, cada
+                   linha lida terá seu link verificado (imagem carrega OK?). -->
+              <div class="field">
+                <label for="p-link-col">Col. Link do Adobe (opcional)</label>
+                <input id="p-link-col" data-testid="input-link-col" placeholder="ex: E" maxlength="3" />
+              </div>
+
+              <div class="field">
+                <label for="p-min-sim">Similaridade mínima (%)</label>
+                <input id="p-min-sim" data-testid="input-min-sim" type="number" min="0" max="100" value="60" />
+              </div>
+              <div class="field">
+                <label for="p-alert-days">Dias de alerta (vírgula)</label>
+                <input id="p-alert-days" data-testid="input-alert-days" value="15,7,3,0" />
+              </div>
+              <div class="field">
+                <label for="p-sharp">Limiar de nitidez</label>
+                <input id="p-sharp" data-testid="input-sharpness" type="number" value="500" />
+              </div>
+
+              <!-- Campos adicionais: colunas extras da planilha (além de
+                   Descrição/Vencimento) que devem ser lidas para cada match
+                   e exibidas nos cards de preview e no CSV exportado. -->
+              <div class="field">
+                <label>Campos adicionais (colunas extras a capturar)</label>
+                <div id="extra-fields-list" class="extra-fields-list"></div>
+                <button type="button" class="btn-outline btn-outline-red full" id="btn-add-extra-field-param" data-testid="btn-add-extra-field-param">
+                  + Adicionar campo
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn-primary" id="btn-run" data-testid="btn-run" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              EXECUTAR
+            </button>
+            <button class="btn-outline" id="btn-run-vencimento" data-testid="btn-run-vencimento" disabled title="Varre toda a planilha por vencimento — não precisa de imagem de pesquisa">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              VENCIMENTO MAIS PRÓXIMO
+            </button>
+            <button class="btn-outline hidden" id="btn-stop" data-testid="btn-stop">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+              INTERROMPER
+            </button>
+            <button class="btn-icon" id="btn-clear" data-testid="btn-clear" aria-label="Limpar console" title="Limpar console">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+
+          <!-- Indicador de progresso sempre visível, mesmo com o terminal
+               recolhido — assim o usuário sabe que algo está acontecendo
+               sem precisar abrir os logs técnicos. -->
+          <div class="run-status hidden" id="run-status-line" data-testid="run-status-line">
+            <span class="run-status-dot"></span>
+            <span id="run-status-line-text">Processando...</span>
+          </div>
+
+          <div class="card summary hidden" id="summary-card">
+            <div class="section-eyebrow">Resumo</div>
+            <div class="stats-grid">
+              <div><div class="stat-value stat-red" id="stat-total">0</div><div class="stat-label" id="stat-label-total">Matches</div></div>
+              <div><div class="stat-value" id="stat-identical">0</div><div class="stat-label" id="stat-label-identical">Idênticas</div></div>
+              <div><div class="stat-value stat-amber" id="stat-similar">0</div><div class="stat-label" id="stat-label-similar">Semelhantes</div></div>
+            </div>
+            <button class="btn-outline btn-outline-red full" id="btn-export-csv" data-testid="btn-export-csv">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- ---------- PREVIEW DOS MATCHES ----------
+             Antes ficava embaixo do terminal; agora fica ao lado do
+             upload, com destaque visual imediato assim que a execução
+             traz resultados. Inclui os novos botões de filtro. -->
+        <div class="preview-col">
+          <div id="matches-preview" class="matches-preview hidden">
+            <div class="mp-header">
+              <div>
+                <h2 class="section-title">Preview dos matches</h2>
+                <p class="mp-hint">Clique em uma imagem para ampliar</p>
+              </div>
+              <span class="chip"><span id="mp-count-badge">0</span> encontrado(s)</span>
+            </div>
+
+            <!-- Filtros de ordenação do preview -->
+            <div class="mp-filters" role="group" aria-label="Ordenar preview">
+              <span class="mp-filters-label">Ordenar por:</span>
+              <button type="button" class="filter-btn active" id="btn-filter-similaridade" data-testid="filter-similaridade" data-order="similaridade">
+                Similaridade (idênticas primeiro)
+              </button>
+              <button type="button" class="filter-btn" id="btn-filter-vencimento" data-testid="filter-vencimento" data-order="vencimento">
+                Vencimento (mais próximas primeiro)
+              </button>
+            </div>
+
+            <div id="mp-grid" class="mp-grid"></div>
+          </div>
+
+          <div class="card empty" id="preview-empty">
+            <span>Nenhum resultado ainda. Selecione a planilha e a imagem de pesquisa e clique em&nbsp;<b>EXECUTAR</b>.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- TERMINAL DE EXECUÇÃO (retrátil) ----------
+           Fica agora abaixo do preview, com os logs técnicos escondidos
+           por padrão. O usuário expande apenas se quiser acompanhar o
+           passo a passo técnico do processamento. -->
+      <div class="terminal-wrap collapsed" id="terminal-wrap">
+        <button type="button" class="terminal-header" id="btn-terminal-toggle" data-testid="btn-terminal-toggle" aria-expanded="false">
+          <div class="terminal-header-left">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-amber"></span>
+            <span class="dot dot-green"></span>
+            <span class="terminal-path">busca-facil@bradesco: ~/processamento</span>
+          </div>
+          <div class="terminal-header-right">
+            <span id="term-status" class="term-status hidden">
+              <span class="dot-live"></span> <span id="term-status-text">executando</span>
+            </span>
+            <span class="term-lines"><span id="term-lines-count">0</span> linhas</span>
+            <svg id="terminal-chevron" class="terminal-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </button>
+        <div class="terminal-body hidden" id="terminal-output" data-testid="terminal-output">
+          <div class="log-line log-dim">$ Bradesco Modal/Card Console v1.0 (100% offline)</div>
+          <div class="log-line log-dim">$ Aguardando arquivos... selecione a planilha e a imagem, depois clique em EXECUTAR.</div>
+          <div class="log-line" id="idle-cursor"><span class="log-success">➜</span> <span class="log-info">console</span><span class="cursor-blink"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= ABA: HISTÓRICO ================= -->
+    <section class="tab-panel hidden" id="panel-history" role="tabpanel" aria-labelledby="tab-history">
+      <div class="history-header">
+        <div>
+          <h2 class="section-title">Últimas execuções</h2>
+          <p id="history-count">0 registro(s)</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-outline" id="btn-clear-history">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+            Limpar tudo
+          </button>
+          <button class="btn-outline" id="btn-refresh-history" data-testid="btn-refresh-history">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Atualizar
+          </button>
+        </div>
+      </div>
+      <!-- Histórico agora limitado a 10 execuções (otimização de espaço no localStorage) -->
+      <div id="history-list" class="history-list"></div>
+      <div id="history-empty" class="card empty hidden">Nenhuma execução registrada ainda.</div>
+    </section>
+
+    <footer class="app-footer">
+      <div class="brand-accent-bar footer-bar"></div>
+      Bradesco · CRM · Ativação de Campanhas · Busca Fácil <span class="footer-version">v1.0</span>
+    </footer>
+  </main>
+
+  <div class="modal hidden" id="modal-detail">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel modal-panel-lg">
+      <div class="modal-header">
+        <h3>Detalhes da execução</h3>
+        <button class="modal-close" data-close aria-label="Fechar" title="Fechar">×</button>
+      </div>
+      <div class="modal-body" id="detail-body"></div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-lightbox">
+    <div class="modal-backdrop" data-close></div>
+    <div class="lightbox-content">
+      <button class="lightbox-close" data-close aria-label="Fechar" title="Fechar">×</button>
+      <img id="lightbox-img" alt="preview" />
+      <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Controle do LOADER — fora do app.js de propósito, pra funcionar
+       mesmo se o app.js falhar ao carregar. -->
+  <script>
+    (function () {
+      var loader = document.getElementById('loader');
+      var shownAt = Date.now();
+      var MIN_MS = 900, MAX_MS = 5000;
+      function hide() {
+        if (!loader || loader.classList.contains('hide')) return;
+        loader.classList.add('hide');
+        setTimeout(function () { loader.remove(); }, 900);
+      }
+      window.addEventListener('load', function () {
+        setTimeout(hide, Math.max(0, MIN_MS - (Date.now() - shownAt)));
+      });
+      setTimeout(hide, MAX_MS);
+    })();
+  </script>
+
+  <!-- Botão de TEMA — inline pra não tocar no app.js da V2. Mesma chave e
+       mesma lógica do script pré-paint no <head>. -->
+  <script>
+    (function () {
+      var KEY = "bradesco_modal_card_theme";
+      var $ = function (id) { return document.getElementById(id); };
+      function apply(theme) {
+        document.documentElement.setAttribute("data-theme", theme);
+        var moon = $("theme-icon-moon"), sun = $("theme-icon-sun"), lbl = $("theme-label");
+        if (moon) moon.classList.toggle("hidden", theme === "dark");
+        if (sun)  sun.classList.toggle("hidden", theme !== "dark");
+        if (lbl)  lbl.textContent = theme === "dark" ? "Claro" : "Escuro"; // mostra a AÇÃO
+      }
+      apply(document.documentElement.getAttribute("data-theme") || "light");
+      var btn = $("btn-theme-toggle");
+      if (btn) btn.addEventListener("click", function () {
+        var current = document.documentElement.getAttribute("data-theme") || "light";
+        var next = current === "dark" ? "light" : "dark";
+        apply(next);
+        try { localStorage.setItem(KEY, next); } catch (_) {}
+      });
+    })();
+  </script>
+
+  <!-- ---------- PAINEL DE PRÉ-VISUALIZAÇÃO (comportamento) ----------
+       Não altera o app.js: escuta os MESMOS eventos das dropzones (change do
+       input, drop na zona e clique no "×"), que chegam aos dois ouvintes. A
+       imagem vem de um object URL próprio, revogado a cada troca para não
+       vazar memória. Para ampliar, reaproveita o #modal-lightbox que já existe
+       (inclusive o fechamento, que o app.js liga em todo [data-close]). -->
+  <script>
+    (function () {
+      var painel = document.getElementById("preview-strip");
+      if (!painel) return;
+
+      var figura = document.getElementById("ps-figura") || document.getElementById("ps-figure");
+      var imagem = document.getElementById("ps-img");
+      var nome = document.getElementById("ps-name");
+      var meta = document.getElementById("ps-meta");
+      var chipXlsx = document.getElementById("ps-chip-xlsx");
+      var nomeXlsx = document.getElementById("ps-xlsx-name");
+      var chipPronto = document.getElementById("ps-chip-ready");
+      var textoPronto = document.getElementById("ps-ready-text");
+
+      var escolhidos = { xlsx: false, image: false };
+      var arquivoImagem = null;
+      var urlAtual = null;
+
+      function peso(bytes) {
+        return bytes < 1048576 ? Math.round(bytes / 1024) + " KB" : (bytes / 1048576).toFixed(1) + " MB";
+      }
+      function encurtar(texto, limite) {
+        if (texto.length <= limite) return texto;
+        var ponto = texto.lastIndexOf(".");
+        var ext = ponto > -1 ? texto.slice(ponto) : "";
+        return texto.slice(0, limite - ext.length - 1) + "…" + ext;
+      }
+      function revisarProntidao() {
+        var faltam = (escolhidos.xlsx ? 0 : 1) + (escolhidos.image ? 0 : 1);
+        chipPronto.classList.toggle("ready", faltam === 0);
+        textoPronto.textContent = faltam === 0
+          ? "pronto — clique em EXECUTAR"
+          : faltam === 1 ? "falta 1 arquivo" : "faltam 2 arquivos";
+      }
+      function definirImagem(arquivo) {
+        arquivoImagem = arquivo && /^image\//.test(arquivo.type) ? arquivo : null;
+        escolhidos.image = !!arquivo;
+        if (urlAtual) { URL.revokeObjectURL(urlAtual); urlAtual = null; }
+
+        if (arquivoImagem) {
+          urlAtual = URL.createObjectURL(arquivoImagem);
+          imagem.src = urlAtual;
+          painel.classList.add("has-image");
+          nome.textContent = encurtar(arquivoImagem.name, 34);
+          figura.title = "Ampliar " + arquivoImagem.name;
+          var teste = new Image();
+          teste.onload = function () {
+            var tipo = (arquivoImagem.type.split("/")[1] || "").toUpperCase();
+            meta.textContent = teste.naturalWidth + " × " + teste.naturalHeight + " px · " + peso(arquivoImagem.size) + (tipo ? " · " + tipo : "");
+          };
+          teste.src = urlAtual;
+        } else {
+          painel.classList.remove("has-image");
+          imagem.removeAttribute("src");
+          figura.title = "Selecionar a imagem de pesquisa";
+          nome.textContent = arquivo ? encurtar(arquivo.name, 34) : "nenhuma imagem ainda";
+          meta.textContent = arquivo ? "formato sem pré-visualização" : "arraste o arquivo na área abaixo";
+        }
+        revisarProntidao();
+      }
+      function definirExcel(arquivo) {
+        escolhidos.xlsx = !!arquivo;
+        chipXlsx.classList.toggle("done", !!arquivo);
+        nomeXlsx.textContent = arquivo ? encurtar(arquivo.name, 26) + " · " + peso(arquivo.size) : "planilha pendente";
+        revisarProntidao();
+      }
+      function espionar(idZona, idInput, idLimpar, aplicar) {
+        var zona = document.getElementById(idZona);
+        var input = document.getElementById(idInput);
+        var limpar = document.getElementById(idLimpar);
+        if (input) input.addEventListener("change", function (e) {
+          if (e.target.files && e.target.files[0]) aplicar(e.target.files[0]);
+        });
+        if (zona) zona.addEventListener("drop", function (e) {
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) aplicar(e.dataTransfer.files[0]);
+        });
+        if (limpar) limpar.addEventListener("click", function () { aplicar(null); });
+      }
+      espionar("dz-xlsx", "input-xlsx", "dz-xlsx-clear", definirExcel);
+      espionar("dz-image", "input-image", "dz-image-clear", definirImagem);
+
+      // Com imagem: amplia no lightbox existente. Sem imagem: abre o seletor,
+      // clicando no próprio botão da dropzone (nenhuma lógica duplicada).
+      figura.addEventListener("click", function () {
+        if (arquivoImagem && urlAtual) {
+          document.getElementById("lightbox-img").src = urlAtual;
+          document.getElementById("lightbox-caption").textContent = "Imagem de pesquisa · " + arquivoImagem.name;
+          document.getElementById("modal-lightbox").classList.remove("hidden");
+        } else {
+          var botao = document.getElementById("dz-image-btn");
+          if (botao) botao.click();
+        }
+      });
+
+      revisarProntidao();
+    })();
+  </script>
+
+  <!-- Sincronia de acessibilidade das ABAS — inline, como o loader e o tema.
+       O app.js cuida da classe .active; aqui só espelhamos esse estado em
+       aria-selected/tabindex e habilitamos as setas ←/→ do teclado. -->
+  <script>
+    (function () {
+      var abas = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
+      if (!abas.length) return;
+      function espelhar() {
+        abas.forEach(function (aba) {
+          var ativa = aba.classList.contains("active");
+          aba.setAttribute("aria-selected", String(ativa));
+          aba.tabIndex = ativa ? 0 : -1;
+        });
+      }
+      abas.forEach(function (aba, i) {
+        aba.addEventListener("click", function () { setTimeout(espelhar, 0); });
+        aba.addEventListener("keydown", function (evento) {
+          var passo = evento.key === "ArrowRight" ? 1 : evento.key === "ArrowLeft" ? -1 : 0;
+          if (!passo) return;
+          evento.preventDefault();
+          var alvo = abas[(i + passo + abas.length) % abas.length];
+          alvo.focus(); alvo.click();
+        });
+      });
+      espelhar();
+    })();
+  </script>
+
+  <!-- type="module" permite import/export entre app.js e imageProcessor.js -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
