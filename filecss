@@ -1,0 +1,1099 @@
+/* ==============================================================================
+ * Bradesco · Modal/Card Console — style.css
+ * ==============================================================================
+ * Organização deste arquivo (use Ctrl+F para pular direto pra seção):
+ *   0. Tokens: cor, tema, raio, sombra, espaçamento, camadas, estados
+ *   1. Variáveis e reset básico
+ *   2. Cabeçalho (header)
+ *   3. Conteúdo principal / abas
+ *   4. Cards, dropzones, formulário de parâmetros, botões
+ *   5. Resumo (estatísticas)
+ *   6. Terminal (log em tempo real, retrátil)
+ *   7. Histórico + Modais
+ *   8. Preview de matches (grade de cards) + filtros + Lightbox
+ *   9. Toasts (avisos temporários)
+ * ============================================================================== */
+:root {
+  --bradesco-red: #cc092f;
+  --bradesco-red-dark: #a20724;
+  --bradesco-red-glow: rgba(204, 9, 47, 0.35);
+  --bg: #f5f5f5;
+  --card-bg: #ffffff;
+  --border: #e5e5e5;
+  --text: #1a1a1a;
+  --text-muted: #666;
+  /* Era #999 = 2,85:1 sobre branco (AA pede 4,5:1). Este token carrega
+     justamente os textos de orientação ("Arraste o arquivo aqui", empty
+     states), então precisava passar. #6b6b6b dá 5,3:1. */
+  --text-dim: #6b6b6b;
+  --terminal-bg: #0d1117;
+  --terminal-header: #161b22;
+  --terminal-border: #30363d;
+
+  /* --- Camada de design (loader + tema escuro) ---
+     Nenhum componente usa #fff/#f5f5f5 chumbado; todos apontam pra
+     estes tokens, então o tema escuro é só redefini-los abaixo. */
+  /* --surface-2 era igual ao --bg: o ícone da dropzone sumia contra a página. */
+  --surface-2: #f0f0f0;
+  --surface-3: #e9e9e9;
+  --checker-a: #e8e8e8;
+  --checker-b: #f5f5f5;
+  --bradesco-red-light: #ff3b5c;
+  --radius-sm: 6px;   --radius-md: 8px;   --radius-lg: 12px;   --radius-full: 999px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.02);
+  --shadow-chip: 0 1px 3px rgba(0,0,0,0.10);
+  --shadow-raised: 0 6px 18px rgba(0,0,0,0.08);
+  --shadow-overlay: 0 20px 60px rgba(0,0,0,0.35);
+
+  /* --- Escala de espaçamento ---
+     Fecha o sistema que já tinha raio e sombra. Os valores são exatamente os
+     que o arquivo já usava (4/8/12/16/20/24/32), só que agora com nome —
+     mudar a densidade da tela vira uma linha só. */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 32px;
+
+  /* --- Camadas (z-index) --- */
+  --z-modal: 100; --z-toast: 200; --z-loader: 9999;
+
+  /* --- Cores semânticas (estado) ---
+     Eram literais espalhados (#15803d, #b45309, #22c55e...) calibrados só
+     para fundo claro; no tema escuro davam ~3:1. Agora são tokens e o bloco
+     escuro reaproveita o verde/amarelo que o terminal já usa — o app passa a
+     ter UMA paleta em vez de duas. */
+  --ok-fg: #15803d;   --ok-bg: rgba(34,197,94,0.15);   --ok-dot: #22c55e;
+  --warn-fg: #b45309; --warn-bg: rgba(245,158,11,0.15); --warn-dot: #f59e0b;
+  --danger-fg: var(--bradesco-red); --danger-bg: rgba(204,9,47,0.15);
+  --run-status-fg: var(--bradesco-red-dark);
+  --terminal-header-hover: #1c2129;
+}
+
+html { color-scheme: light; }
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14161a;
+  --card-bg: #1c1f26;
+  --surface-2: #20242c;
+  --surface-3: #262b34;
+  --checker-a: #20242c;
+  --checker-b: #20242c;
+  --border: #2c313c;
+  --text: #eef0f3;
+  --text-muted: #a3a9b5;
+  --text-dim: #8a92a0;
+  --terminal-bg: #0a0c10;
+  --terminal-header: #12151a;
+  --terminal-border: #262b34;
+  --terminal-header-hover: #1a1f27;
+
+  /* Estados no escuro: mesmos tons do log do terminal. */
+  --ok-fg: #7ee787;   --ok-bg: rgba(34,197,94,0.14);
+  --warn-fg: #f2cc60; --warn-bg: rgba(245,158,11,0.14);
+  --danger-fg: #ff8a9c; --danger-bg: rgba(204,9,47,0.20);
+  --run-status-fg: var(--bradesco-red-light);
+}
+body, .card, .app-header, .mp-card, .modal-panel, .toast { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+h1, h2, h3, h4 { margin: 0; }
+button { font-family: inherit; cursor: pointer; }
+input { font-family: inherit; }
+
+.hidden { display: none !important; }
+::selection { background: var(--bradesco-red); color: #fff; }
+
+/* ============ Header ============ */
+.brand-accent-bar {
+  height: 3px;
+  background: linear-gradient(90deg, var(--bradesco-red) 0%, var(--bradesco-red) 60%, var(--bradesco-red-light) 100%);
+}
+.app-header { background: var(--card-bg); border-bottom: 1px solid var(--border); }
+.header-inner {
+  max-width: 1400px; margin: 0 auto; padding: var(--space-4) var(--space-6);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.brand { display: flex; align-items: center; gap: var(--space-3); }
+.brand-logo {
+  width: 40px; height: 40px; border-radius: var(--radius-sm);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 20px; letter-spacing: -0.02em;
+  overflow: hidden;
+}
+/* A imagem vinha com 48px dentro de uma caixa de 40px e estourava. */
+.brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+/* Um único tratamento para TODOS os rótulos-sobrancelha da interface.
+   .section-eyebrow ("Resumo") só tinha margem e saía como texto de 16px;
+   .dz-label não tinha regra nenhuma e ficava MAIOR que o valor abaixo dele. */
+.brand-eyebrow, .section-eyebrow, .dz-label, .mp-filters-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-muted);
+}
+.brand-title { font-size: 18px; font-weight: 700; line-height: 1.15; }
+.header-right { display: flex; align-items: center; gap: var(--space-2); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); color: var(--text-muted);
+  padding: 5px 10px; border-radius: var(--radius-full); font-size: 12px;
+  background: var(--card-bg);
+}
+.chip-btn:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+/* O chip de "roda sem servidor" agora comunica estado em vez de parecer
+   um rótulo qualquer igual ao vizinho. */
+.chip-offline { color: var(--ok-fg); border-color: var(--ok-bg); background: var(--ok-bg); }
+
+/* ============ Main ============ */
+.app-main { max-width: 1400px; margin: 0 auto; padding: var(--space-7) var(--space-6); }
+.page-title h1 {
+  font-size: clamp(28px, 3vw, 40px); font-weight: 800;
+  letter-spacing: -0.02em; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 10px;
+}
+.page-title-icon { color: var(--bradesco-red); flex-shrink: 0; }
+.page-title p { color: var(--text-muted); font-size: 15px; max-width: 640px; }
+
+/* ============ Tabs ============ */
+/* A linha das abas repete as colunas do .grid abaixo (380px + resto), então o
+   painel de pré-visualização nasce exatamente na mesma vertical do card de
+   preview dos matches, em vez de flutuar num ponto qualquer da faixa. */
+.tabs-row {
+  display: grid; grid-template-columns: 380px 1fr; gap: var(--space-6);
+  /* As abas descem para o meio da faixa, mais perto do card "Arquivos".
+     Isso só é seguro porque o min-height abaixo trava a altura: com a faixa
+     de altura variável (como era antes), centralizar fazia as abas subirem
+     e descerem conforme o painel aparecia. */
+  align-items: center; margin-top: var(--space-6);
+  /* Altura reservada desde o primeiro carregamento (= altura exata do
+     painel: 106px da moldura + 12px de padding em cima e embaixo + 2px de
+     borda). Assim o painel aparece e desaparece sem empurrar nada: as abas
+     e todo o grid abaixo ficam cravados no mesmo lugar. */
+  min-height: 132px;
+}
+.tabs-row > .tabs { justify-self: start; margin-top: 90px; }
+.tabs {
+  display: inline-flex; gap: var(--space-1); padding: var(--space-1);
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: none; padding: 8px 14px;
+  border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; color: var(--text-muted);
+  transition: all 160ms ease;
+}
+.tab:hover { color: var(--text); }
+.tab.active { background: var(--bradesco-red); color: #fff; }
+.tab-panel { margin-top: var(--space-6); }
+
+/* ============ Painel de pré-visualização (ao lado das abas) ============ */
+/* Ocupa a faixa horizontal vazia à direita das abas mostrando a imagem de
+   pesquisa em tamanho de verdade — o analista confere o que vai buscar ANTES
+   de rodar. Vazio, o painel fica discreto (traço pontilhado); com imagem, a
+   moldura ganha contorno verde e o clique amplia no lightbox. */
+.preview-strip {
+  display: flex; align-items: center; gap: var(--space-4);
+  width: 100%; height: 132px; padding: var(--space-3);
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-card);
+  animation: psIn 260ms ease both;
+}
+/* Sem imagem anexada o painel não existe: a orientação de arrastar já está na
+   dropzone logo abaixo, e uma moldura vazia só ocuparia espaço nobre. */
+.preview-strip:not(.has-image) { display: none; }
+@keyframes psIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- moldura da imagem --- */
+.ps-figure {
+  position: relative; flex-shrink: 0;
+  width: 168px; height: 106px; padding: 0;
+  border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: grid; place-items: center; overflow: hidden;
+  color: var(--text-dim); cursor: pointer;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.ps-figure:hover { border-color: var(--bradesco-red); }
+.preview-strip.has-image .ps-figure {
+  border: 1px solid var(--ok-fg); cursor: zoom-in;
+  background:
+    repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 50%/12px 12px;
+}
+.ps-placeholder { transition: opacity 200ms ease; }
+.preview-strip.has-image .ps-placeholder { opacity: 0; }
+
+.ps-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; opacity: 0; transition: opacity 260ms ease;
+}
+.preview-strip.has-image .ps-img { opacity: 1; }
+
+/* Só faz sentido convidar a ampliar quando existe imagem. */
+.ps-hint {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  display: none; align-items: center; justify-content: center; gap: 4px;
+  padding: 3px 0; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: #fff; background: rgba(0,0,0,0.55);
+  opacity: 0; transition: opacity 160ms ease;
+}
+.preview-strip.has-image .ps-hint { display: flex; }
+.preview-strip.has-image .ps-figure:hover .ps-hint,
+.preview-strip.has-image .ps-figure:focus-visible .ps-hint { opacity: 1; }
+
+/* --- textos --- */
+.ps-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ps-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em; color: var(--text-dim);
+}
+.ps-name {
+  font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.preview-strip.has-image .ps-name { color: var(--text); }
+.ps-meta {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* --- rodapé: planilha + prontidão --- */
+.ps-foot {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 5px;
+  margin-left: auto; flex-shrink: 0;
+}
+.ps-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--radius-full);
+  border: 1px solid var(--border); background: var(--surface-2);
+  font-size: 11px; font-weight: 600; color: var(--text-dim);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: all 200ms ease;
+}
+.ps-chip svg { flex-shrink: 0; }
+.ps-chip.done { background: var(--ok-bg); border-color: transparent; color: var(--ok-fg); }
+.ps-chip-ready.ready {
+  background: var(--bradesco-red); border-color: transparent; color: #fff;
+}
+
+/* --- responsivo --- */
+@media (max-width: 1024px) {
+  /* Coluna única: as abas ficam acima e o painel ocupa a largura toda. */
+  .tabs-row { grid-template-columns: 1fr; gap: var(--space-3); min-height: 0; }
+}
+@media (max-width: 640px) {
+  .ps-figure { width: 120px; height: 80px; }
+  .ps-name { font-size: 14px; }
+  .preview-strip { flex-wrap: wrap; height: auto; gap: var(--space-3); }
+  /* Sem largura para os chips à direita, eles descem para uma linha própria. */
+  .ps-foot {
+    flex-direction: row; flex-wrap: wrap; align-items: flex-start;
+    margin-left: 0; flex-basis: 100%;
+  }
+  .ps-chip { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+}
+
+/* ============ Grid ============ */
+/* Coluna esquerda = upload/parâmetros/ações; coluna direita = preview dos
+   matches, agora em destaque logo acima do terminal (que foi para baixo). */
+.grid {
+  display: grid; grid-template-columns: 380px 1fr; gap: var(--space-6);
+}
+@media (max-width: 1024px) { .grid { grid-template-columns: 1fr; } }
+
+.left-col { display: flex; flex-direction: column; gap: var(--space-4); }
+.preview-col { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+
+/* ============ Cards ============ */
+.card {
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+.card-header {
+  display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-4);
+}
+.card-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.section-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+
+/* ============ Dropzone ============ */
+.dropzone {
+  position: relative;
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 14px; margin-bottom: var(--space-3);
+  background: var(--card-bg); border: 2px dashed var(--border); border-radius: var(--radius-md);
+  cursor: pointer; transition: all 180ms ease;
+}
+.dropzone:last-child { margin-bottom: 0; }
+.dropzone:hover, .dropzone.dragging {
+  border-color: var(--bradesco-red);
+  background: rgba(204, 9, 47, 0.03);
+}
+.dz-icon {
+  width: 44px; height: 44px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-2); color: var(--text-muted); flex-shrink: 0;
+}
+.dz-icon.filled { background: var(--bradesco-red); color: #fff; }
+.dz-text { flex: 1; min-width: 0; }
+.dz-label { margin-bottom: 2px; }  /* tipografia: bloco de eyebrows acima */
+.dz-value {
+  font-size: 14px; color: var(--text-dim); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dz-value.filled { color: var(--text); font-weight: 600; }
+.dz-select-btn {
+  margin-top: 8px;
+  background: var(--card-bg); border: 1px solid var(--border); color: var(--text);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 6px 12px; border-radius: var(--radius-sm); transition: all 160ms ease;
+}
+.dz-select-btn:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+/* O botão de seleção fica dentro da área clicável da dropzone; paramos a
+   propagação do clique no JS para não abrir o seletor de arquivo 2x. */
+.dz-clear {
+  background: transparent; border: none; color: var(--text-dim);
+  padding: 2px 6px; border-radius: var(--radius-sm); font-size: 20px; line-height: 1;
+}
+.dz-clear:hover { background: var(--surface-3); color: var(--text); }
+
+/* ============ Collapsible / fields ============ */
+.collapsible-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; background: transparent; border: none; padding: 0;
+  color: var(--text);
+}
+.ct-left { display: flex; align-items: center; gap: 8px; }
+#advanced-chevron { transition: transform 200ms ease; color: var(--text-muted); }
+#advanced-chevron.rotated { transform: rotate(180deg); }
+.collapsible-content { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; }
+
+.field {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  min-width: 0; /* impede o campo de estourar a coluna do grid */
+}
+.field input {
+  width: 100%;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 14px; color: var(--text); background: var(--card-bg);
+  transition: border-color 160ms;
+}
+.field input:focus {
+  outline: none; border-color: var(--bradesco-red);
+  box-shadow: 0 0 0 3px rgba(204, 9, 47, 0.08);
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+
+/* ============ Campos adicionais (colunas extras mapeadas) ============ */
+.extra-fields-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.extra-field-row {
+  display: grid; grid-template-columns: 1fr 1.4fr auto; gap: 8px; align-items: center;
+}
+.ef-col, .ef-label {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 13px; color: var(--text); background: var(--card-bg);
+  transition: border-color 160ms;
+}
+.ef-col:focus, .ef-label:focus {
+  outline: none; border-color: var(--bradesco-red);
+  box-shadow: 0 0 0 3px rgba(204, 9, 47, 0.08);
+}
+.ef-remove {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  width: 32px; height: 32px; border-radius: var(--radius-sm); font-size: 16px; line-height: 1;
+}
+.ef-remove:hover { border-color: var(--bradesco-red); background: var(--surface-3); color: var(--bradesco-red); }
+
+/* ============ Buttons ============ */
+/* Três botões numa coluna de 380px não cabiam lado a lado: "VENCIMENTO MAIS
+   PRÓXIMO" quebrava em duas linhas dentro de uma caixa de altura fixa e o
+   texto vazava. Agora EXECUTAR ocupa a primeira linha inteira, os outros dois
+   dividem a segunda, e a altura passou a ser mínima em vez de fixa. */
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.btn-primary, .btn-outline, .btn-icon {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  padding: 10px 18px; min-height: 44px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; line-height: 1.2;
+  transition: all 160ms ease; border: 1px solid transparent;
+}
+.actions > .btn-primary { flex: 1 1 100%; }
+.btn-primary {
+  background: var(--bradesco-red); color: #fff; border: none;
+  /* Pulsa 3 vezes e para. Como o estado :disabled zera a animação
+     (animation: none, logo abaixo), o pulso recomeça sozinho toda
+     vez que o botão SAI do estado desabilitado — chama atenção
+     exatamente quando fica clicável e depois sossega, em vez de
+     piscar a sessão inteira. */
+  animation: pulseGlow 1.8s ease-in-out 3;
+}
+.btn-primary:hover:not(:disabled) { background: var(--bradesco-red-dark); }
+/* Antes o botão desabilitado (ex: EXECUTAR antes de anexar os arquivos,
+   ou "Salvar alterações no Excel" antes de haver edição pendente) virava
+   um rosa bem clarinho (#eec4cc) com texto branco em cima — no tema
+   escuro isso ficava parecendo um retângulo branco "quebrado", quase
+   invisível. Agora ele continua sendo o mesmo vermelho da marca sempre
+   (nunca troca de cor), só com a opacidade reduzida — dá pra ver que
+   está desabilitado, mas o botão nunca some ou vira uma cor estranha. */
+.btn-primary:disabled {
+  background: var(--bradesco-red); opacity: 0.5;
+  cursor: not-allowed; animation: none;
+}
+.btn-outline {
+  background: var(--card-bg); color: var(--text); border: 1px solid var(--border); flex: 1;
+}
+.btn-outline:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+.btn-outline-red { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+.btn-outline-red:hover { background: rgba(204,9,47,0.05); }
+.btn-outline.full { width: 100%; flex: none; }
+.btn-icon {
+  width: 44px; flex: 0 0 44px; padding: 0; background: var(--card-bg);
+  border: 1px solid var(--border); color: var(--text);
+}
+.btn-icon:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--bradesco-red-glow); }
+  50% { box-shadow: 0 0 0 8px transparent; }
+}
+
+/* ============ Summary card ============ */
+.section-eyebrow { margin-bottom: 10px; }
+.stats-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  text-align: center; margin-bottom: 12px;
+}
+.stat-value { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; }
+.stat-red { color: var(--bradesco-red); }
+.stat-amber { color: var(--warn-fg); }
+.stat-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); font-weight: 600;
+}
+
+/* ============ Terminal (retrátil) ============ */
+.terminal-wrap {
+  margin-top: 24px;
+  background: var(--terminal-bg); border: 1px solid var(--terminal-border);
+  border-radius: var(--radius-md); overflow: hidden;
+  box-shadow: var(--shadow-raised);
+}
+/* O cabeçalho agora é um <button> (100% clicável) que expande/recolhe o
+   corpo do terminal. Os logs técnicos ficam escondidos por padrão — só
+   quem quiser acompanhar o passo a passo abre esta seção. */
+.terminal-header {
+  width: 100%; background: var(--terminal-header); border: none;
+  border-bottom: 1px solid var(--terminal-border);
+  padding: 10px 16px; display: flex; align-items: center; justify-content: space-between;
+  text-align: left; font: inherit; color: inherit; cursor: pointer;
+}
+.terminal-header:hover { background: var(--terminal-header-hover); }
+.terminal-header:focus-visible { outline: 2px solid var(--bradesco-red); outline-offset: -2px; }
+.terminal-chevron { color: #8b949e; transition: transform 200ms ease; flex-shrink: 0; }
+.terminal-header[aria-expanded="true"] .terminal-chevron { transform: rotate(180deg); }
+.terminal-wrap.collapsed .terminal-header { border-bottom: none; }
+.terminal-header-left { display: flex; align-items: center; gap: 8px; }
+.dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.dot-red { background: #ff5f56; }
+.dot-amber { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
+.terminal-path {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: #8b949e; margin-left: 12px;
+}
+.terminal-header-right { display: flex; align-items: center; gap: 12px; }
+.term-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em; color: #7ee787;
+}
+.dot-live {
+  width: 8px; height: 8px; border-radius: 50%; background: #7ee787;
+  animation: livePulse 1.2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Indicador de progresso inline, visível mesmo com o terminal recolhido */
+.run-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 10px; padding: 8px 12px;
+  background: rgba(204,9,47,0.06); border: 1px solid rgba(204,9,47,0.18);
+  border-radius: var(--radius-md); font-size: 12.5px; font-weight: 600; color: var(--run-status-fg);
+}
+.run-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--bradesco-red);
+  animation: livePulse 1.2s ease-in-out infinite; flex-shrink: 0;
+}
+.term-lines {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.08em; color: #6e7681;
+}
+.terminal-body {
+  position: relative;
+  /* Cresce com o log: baixo no início, rola só ao atingir 70vh/720px */
+  padding: 16px; min-height: 200px; max-height: min(70vh, 720px);
+  overflow-y: auto; background: var(--terminal-bg);
+}
+.terminal-body::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+  mix-blend-mode: overlay;
+}
+.terminal-body::-webkit-scrollbar { width: 10px; }
+.terminal-body::-webkit-scrollbar-track { background: var(--terminal-bg); }
+.terminal-body::-webkit-scrollbar-thumb { background: #30363d; border-radius: var(--radius-sm); }
+.terminal-body::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+.log-line {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  line-height: 1.55; white-space: pre-wrap; color: #c9d1d9;
+  animation: logIn 120ms ease-out;
+}
+@keyframes logIn {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.log-ts { color: #6e7681; margin-right: 8px; user-select: none; }
+.log-info    { color: #79c0ff; }
+.log-success { color: #7ee787; }
+.log-warn    { color: #f2cc60; }
+.log-error   { color: #ff7b72; }
+.log-match   { color: #ff9a9a; font-weight: 600; }  /* 600 do JetBrains Mono agora é carregado de fato */
+.log-header  { color: #d2a8ff; }
+.log-dim     { color: #6e7681; }
+
+.cursor-blink {
+  display: inline-block; width: 8px; height: 1em;
+  background: #7ee787; margin-left: 4px; vertical-align: middle;
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+/* ============ History ============ */
+.history-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+}
+.history-header p { font-size: 12px; color: var(--text-muted); margin: 2px 0 0; }
+.history-list { display: grid; gap: 12px; }
+.history-item {
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 16px; transition: box-shadow 200ms;
+}
+.history-item:hover { box-shadow: var(--shadow-raised); }
+.history-item-top { display: flex; justify-content: space-between; gap: 16px; }
+.hi-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: var(--radius-full);
+  font-size: 11px; font-weight: 600;
+}
+.badge-success { background: var(--ok-bg);     color: var(--ok-fg); }
+.badge-fail    { background: var(--danger-bg); color: var(--danger-fg); }
+.badge-warn    { background: var(--warn-bg);   color: var(--warn-fg); }
+.hi-time { font-size: 12px; color: var(--text-muted); }
+.hi-files {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  font-size: 13px; color: var(--text);
+}
+@media (max-width: 640px) { .hi-files { grid-template-columns: 1fr; } }
+.hi-file { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.hi-file svg { color: var(--bradesco-red); flex-shrink: 0; }
+.hi-file span.name { font-weight: 600; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.hi-file span.dim { color: var(--text-dim); font-size: 11px; }
+.hi-stats { display: flex; gap: 16px; margin-top: 8px; font-size: 12px; }
+.hi-stats b { color: var(--bradesco-red); }
+.hi-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.hi-btn {
+  width: 32px; height: 32px; background: transparent; border: none;
+  border-radius: var(--radius-sm); color: var(--text-muted);
+  display: flex; align-items: center; justify-content: center;
+}
+.hi-btn:hover { background: var(--surface-3); color: var(--text); }
+.hi-btn.danger:hover { background: rgba(204,9,47,0.1); color: var(--bradesco-red); }
+
+.card.empty {
+  padding: 48px 32px; text-align: center; color: var(--text-dim);
+  font-size: 14px; line-height: 1.6; border-style: dashed; box-shadow: none;
+}
+.card.empty::before {
+  content: ""; display: block; width: 40px; height: 40px;
+  margin: 0 auto 14px; background: var(--text-dim); opacity: 0.55;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Placeholder do preview antes da primeira execução — ocupa o espaço em
+   destaque reservado à coluna de resultados. */
+#preview-empty {
+  min-height: 200px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+
+/* ============ Modal ============ */
+.modal {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+}
+.modal-panel {
+  position: relative; background: var(--card-bg); border-radius: var(--radius-lg);
+  width: 92%; max-width: 480px; max-height: 85vh; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-overlay);
+  animation: modalIn 200ms ease-out;
+}
+.modal-panel-lg { max-width: 900px; }
+@keyframes modalIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 16px; font-weight: 700; }
+.modal-close {
+  background: transparent; border: none; font-size: 24px; color: var(--text-muted);
+  width: 32px; height: 32px; border-radius: var(--radius-sm); line-height: 1;
+}
+.modal-close:hover { background: var(--surface-3); color: var(--text); }
+/* A tabela de detalhes tem 5 colunas e estourava a largura no celular;
+   agora o corpo do modal rola na horizontal em vez de cortar o conteúdo. */
+.modal-body { padding: var(--space-5); overflow-y: auto; overflow-x: auto; }
+.detail-meta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;
+  font-size: 13px; margin-bottom: 16px;
+}
+.detail-meta b { font-weight: 700; }
+.detail-table {
+  width: 100%; min-width: 460px; border-collapse: collapse;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+  font-size: 12px;
+}
+.detail-table th, .detail-table td { padding: 8px; text-align: left; }
+.detail-table th { background: var(--surface-2); font-weight: 600; }
+.detail-table tr + tr td { border-top: 1px solid var(--border); }
+.detail-table .mono { font-family: 'JetBrains Mono', monospace; }
+
+/* ============ Footer ============ */
+.app-footer {
+  margin-top: 48px; padding-bottom: 32px;
+  text-align: center; font-size: 12px; color: var(--text-dim);
+}
+.footer-bar { max-width: 80px; margin: 0 auto var(--space-4); border-radius: var(--radius-sm); }
+.footer-version {
+  font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px;
+  padding: 1px 6px; margin-left: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius-full);
+}
+
+/* ============ Matches Preview (thumbnails) ============ */
+/* Agora vive dentro de .preview-col, ao lado do upload — por isso não tem
+   mais margin-top (quem espaça é o gap do .preview-col). */
+.matches-preview {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+.mp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.mp-hint { font-size: 12px; color: var(--text-muted); margin: 2px 0 0; }
+
+/* Filtros de ordenação: "Similaridade" (idênticas primeiro) e
+   "Vencimento" (mais próximas de vencer primeiro). */
+.mp-filters {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+}
+.mp-filters-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-muted); margin-right: 2px;
+}
+.filter-btn {
+  background: var(--card-bg); border: 1px solid var(--border); color: var(--text-muted);
+  font-size: 12px; font-weight: 600; padding: 7px 12px; border-radius: var(--radius-full);
+  transition: all 160ms ease;
+}
+.filter-btn:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+.filter-btn.active {
+  background: var(--bradesco-red); border-color: var(--bradesco-red); color: #fff;
+}
+.mp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+.mp-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: transform 200ms, box-shadow 200ms, border-color 200ms;
+  animation: cardIn 300ms ease-out;
+  display: flex;
+  flex-direction: column;
+}
+.mp-card:hover {
+  border-color: var(--bradesco-red);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-raised);
+}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mp-thumb {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  background:
+    repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 50%/14px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.mp-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.mp-thumb-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mp-thumb-tag::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+}
+/* A etiqueta fica SOBRE a miniatura (fundo branco fixo), então aqui o texto
+   mantém os tons escuros — legibilidade não depende do tema. */
+.mp-thumb-tag.tag-identical { color: #15803d; border: 1px solid rgba(21,128,61,0.35); }
+.mp-thumb-tag.tag-identical::before { background: #22c55e; }
+.mp-thumb-tag.tag-similar   { color: #b45309; border: 1px solid rgba(180,83,9,0.35); }
+.mp-thumb-tag.tag-similar::before   { background: #f59e0b; }
+
+.mp-thumb-sim {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(13, 17, 23, 0.85);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+.mp-thumb-sim.high { color: #7ee787; }
+.mp-thumb-sim.mid  { color: #f2cc60; }
+
+.mp-info {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.mp-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.mp-desc {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mp-exp {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  gap: 8px;
+}
+.mp-exp-date {
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+.mp-exp-status {
+  font-weight: 700;
+  font-size: 10px;
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.mp-exp-status.st-red   { background: var(--danger-bg); color: var(--danger-fg); }
+.mp-exp-status.st-amber { background: var(--warn-bg);   color: var(--warn-fg); }
+.mp-exp-status.st-green { background: var(--ok-bg);     color: var(--ok-fg); }
+
+/* Campos adicionais (colunas extras mapeadas) exibidos no card de preview */
+.mp-extra {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px dashed var(--border);
+}
+.mp-extra-item { font-size: 11px; color: var(--text-muted); }
+.mp-extra-item b { color: var(--text); font-weight: 600; }
+
+/* ============ Lightbox ============ */
+.lightbox-content {
+  position: relative;
+  max-width: 92vw;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: modalIn 200ms ease-out;
+}
+#lightbox-img {
+  max-width: 92vw;
+  max-height: 84vh;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  background: var(--card-bg);
+}
+.lightbox-close {
+  /* Antes em top:-44px (fora do painel). Agora dentro do canto sup. dir. */
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255,255,255,0.95);
+  border: none;
+  font-size: 22px;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 1;
+  color: #1a1a1a; /* fixo: o círculo é sempre claro */
+  box-shadow: var(--shadow-chip);
+  z-index: 6;
+}
+.lightbox-close:hover { background: #fff; color: var(--bradesco-red); } /* branco fixo: botao sobre a imagem */
+.lightbox-caption {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(13, 17, 23, 0.85);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+}
+
+/* Stat color variants used by summary */
+.stat-value.stat-green { color: var(--ok-fg); }
+
+/* ============ Toasts ============ */
+.toast-container {
+  position: fixed; top: 84px; right: var(--space-6); z-index: var(--z-toast);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  background: var(--card-bg); border: 1px solid var(--border);
+  padding: 12px 16px; border-radius: var(--radius-md); font-size: 13px;
+  box-shadow: var(--shadow-raised);
+  min-width: 260px; max-width: 380px;
+  animation: toastIn 200ms ease-out;
+  border-left: 3px solid var(--bradesco-red);
+}
+.toast.toast-success { border-left-color: var(--ok-dot); }
+.toast.toast-warn    { border-left-color: var(--warn-dot); }
+.toast.toast-error   { border-left-color: var(--bradesco-red); }
+@keyframes toastIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* ============ Responsividade — telas pequenas (celular) ============ */
+@media (max-width: 640px) {
+  .app-main { padding: 20px 14px; }
+  .header-inner { padding: 12px 14px; flex-wrap: wrap; gap: 10px; }
+  .header-right { flex-wrap: wrap; }
+  .tabs { max-width: 100%; overflow-x: auto; }
+  .field-row { grid-template-columns: 1fr; }
+  .extra-field-row { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .detail-meta { grid-template-columns: 1fr; }
+  .stat-value { font-size: 22px; }
+  .mp-grid { grid-template-columns: 1fr; }
+  .actions { flex-wrap: wrap; }
+  .toast-container { left: var(--space-3); right: var(--space-3); top: auto; bottom: var(--space-3); }
+  .toast { min-width: 0; max-width: none; }
+}
+
+/* ==============================================================================
+ * 10. LOADER (tela de abertura) + REFINAMENTOS DE ACABAMENTO
+ * ==============================================================================
+ * Camada de design portada. O loader cobre a tela no vermelho da marca
+ * enquanto a página monta; o controle (mostrar/esconder) é um script inline
+ * no index.html, independente do app.js. Os refinamentos abaixo são feedback
+ * FUNCIONAL (comunicam estado), curtos, e somem com prefers-reduced-motion.
+ * ============================================================================== */
+
+/* ---------- Loader ---------- */
+.loader {
+  position: fixed; inset: 0; z-index: var(--z-loader);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: radial-gradient(120% 120% at 50% 28%, #e00a34 0%, var(--bradesco-red) 45%, #7c051d 100%);
+  transition: opacity 0.5s ease 0.15s, visibility 0.5s ease 0.15s;
+}
+.loader.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.loader-icon {
+  position: relative;
+  width: 104px; height: 104px; border-radius: 50%;
+  background: #fff; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.14), 0 16px 44px rgba(0,0,0,0.35);
+  animation: loaderPulse 2.2s ease-in-out infinite;
+}
+.loader-icon img { width: 62%; height: 62%; object-fit: contain; }
+/* Se o CDN estiver bloqueado, o círculo branco mostra a lupa da marca em
+   vez de ficar vazio no meio da tela vermelha. */
+.loader-icon::before {
+  content: ""; position: absolute; width: 46%; height: 46%;
+  background: var(--bradesco-red);
+  -webkit-mask: url("data:image/svg+xml,...") center / contain no-repeat;
+  mask: url("data:image/svg+xml,...") center / contain no-repeat;
+  z-index: -1;
+}
+
+.loader-eyebrow {
+  margin-top: 24px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.3em; color: rgba(255,255,255,0.75);
+  animation: loaderFadeUp 0.7s ease both;
+}
+.loader-title {
+  margin-top: 6px;
+  font-size: clamp(20px, 4vw, 26px); font-weight: 800;
+  letter-spacing: -0.02em; color: #fff; text-align: center;
+  animation: loaderFadeUp 0.7s 0.15s ease both;
+}
+.loader-bar {
+  width: 160px; height: 3px; margin-top: 28px;
+  border-radius: var(--radius-full); overflow: hidden;
+  background: rgba(255,255,255,0.18);
+  animation: loaderFadeUp 0.7s 0.45s ease both;
+}
+.loader-bar::before {
+  content: ""; display: block; width: 40%; height: 100%;
+  border-radius: inherit; background: #fff;
+  animation: loaderSweep 1.1s ease-in-out infinite;
+}
+@keyframes loaderPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+@keyframes loaderFadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes loaderSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+
+/* Loader no tema escuro: mesmo vermelho, luz apagada; termina quase no --bg
+   escuro, então o fade "pousa" na cor da tela sem contraste brusco. */
+html[data-theme="dark"] .loader {
+  background: radial-gradient(120% 120% at 50% 28%, #6b0419 0%, #40030f 45%, #16090c 100%);
+}
+html[data-theme="dark"] .loader-icon {
+  box-shadow: 0 0 0 6px rgba(255,255,255,0.08), 0 16px 44px rgba(0,0,0,0.6);
+}
+
+/* ---------- Botão de tema (header) ---------- */
+.theme-toggle { background: var(--card-bg); }
+.theme-toggle:hover { border-color: var(--bradesco-red); color: var(--bradesco-red); }
+
+/* ---------- 1) Clique tátil ---------- */
+.btn-primary:active:not(:disabled),
+.btn-outline:active:not(:disabled),
+.btn-icon:active:not(:disabled),
+.tab:active, .filter-btn:active, .chip-btn:active,
+.theme-toggle:active { transform: scale(0.97); }
+
+/* ---------- 2) Dropzone: confirmação ao receber arquivo ----------
+   Reage à classe .filled que o app.js já adiciona — sem tocar no JS. */
+.dz-icon.filled { animation: dzPop 0.32s ease; }
+@keyframes dzPop { 0% { transform: scale(0.8); } 55% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.dropzone:has(.dz-icon.filled) { animation: dzConfirm 0.6s ease; }
+@keyframes dzConfirm {
+  0%   { border-color: var(--ok-dot); background: var(--ok-bg); }
+  100% { border-color: var(--border); background: var(--card-bg); }
+}
+
+/* ---------- 3) Troca de abas: fade + slide ----------
+   CSS-only: o navegador REINICIA a animação toda vez que o painel deixa de
+   ser display:none (quando o app.js tira a classe .hidden). */
+.tab-panel:not(.hidden) { animation: panelIn 0.18s ease-out; }
+@keyframes panelIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ---------- 4) Acabamentos ---------- */
+html { scroll-behavior: smooth; }
+:focus-visible {
+  outline: 2px solid var(--bradesco-red); outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.field input:focus-visible { outline: none; } /* já tem anel próprio */
+
+/* ---------- Respeita quem pediu menos movimento ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .loader-icon, .loader-bar::before { animation: none; }
+  .loader-eyebrow, .loader-title, .loader-bar { animation: none; opacity: 1; transform: none; }
+  .btn-primary:active:not(:disabled), .btn-outline:active:not(:disabled),
+  .btn-icon:active:not(:disabled), .tab:active, .filter-btn:active,
+  .chip-btn:active, .theme-toggle:active { transform: none; }
+  .dz-icon.filled, .dropzone:has(.dz-icon.filled),
+  .tab-panel:not(.hidden) { animation: none; }
+  /* Faltavam justamente as que mais aparecem numa execução com muitos
+     matches: entrada dos cards, das linhas de log, dos toasts e dos modais,
+     mais os três loops (ponto "executando", cursor do terminal e o pulso do
+     EXECUTAR). Agora a preferência do sistema é respeitada de ponta a ponta. */
+  .mp-card, .log-line, .toast, .modal-panel, .lightbox-content { animation: none; }
+  .ps-img, .ps-figure, .ps-chip, .ps-hint, .ps-placeholder { transition: none; }
+  .preview-strip { animation: none; }
+  .dot-live, .run-status-dot, .cursor-blink, .btn-primary { animation: none; }
+  .cursor-blink { opacity: 1; }
+  html { scroll-behavior: auto; }
+}
